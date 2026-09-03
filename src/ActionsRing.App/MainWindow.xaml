@@ -1,0 +1,516 @@
+<Window x:Class="ActionsRing.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        xmlns:controls="clr-namespace:ActionsRing.App.Controls"
+        Title="Actions Ring"
+        Width="1180"
+        Height="740"
+        MinWidth="820"
+        MinHeight="440"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        Closing="OnWindowClosing"
+        StateChanged="OnWindowStateChanged"
+        Background="{DynamicResource WindowBrush}">
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="50"
+                            ResizeBorderThickness="7"
+                            CornerRadius="14"
+                            GlassFrameThickness="0"
+                            UseAeroCaptionButtons="False" />
+    </shell:WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <Style x:Key="WindowButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Margin" Value="1,0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="FontFamily" Value="{DynamicResource UiFont}" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Light" />
+            <Setter Property="shell:WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+        </Style>
+
+        <Style x:Key="NavRadio" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Root" Height="48" CornerRadius="13" Background="Transparent" Padding="14,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="30" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <TextBlock x:Name="Glyph" Text="{TemplateBinding Tag}" FontFamily="{DynamicResource IconFont}" FontSize="17"
+                                           VerticalAlignment="Center" Foreground="{TemplateBinding Foreground}" />
+                                <ContentPresenter Grid.Column="1" VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ToggleSwitch" TargetType="CheckBox">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border x:Name="Track" CornerRadius="13" Background="{DynamicResource BorderBrush}" />
+                            <Ellipse x:Name="Thumb" Width="20" Height="20" Fill="White" HorizontalAlignment="Left" Margin="3,0,0,0">
+                                <Ellipse.RenderTransform><TranslateTransform X="0" /></Ellipse.RenderTransform>
+                            </Ellipse>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right" />
+                                <Setter TargetName="Thumb" Property="Margin" Value="0,0,3,0" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Track" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsRow" TargetType="Border">
+            <Setter Property="Padding" Value="0,17" />
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="50" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+
+        <!-- Custom title bar -->
+        <Border Grid.Row="0" Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1"
+                MouseLeftButtonDown="OnTitleBarMouseDown">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition x:Name="TitleSidebarColumn" Width="210" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="20,0,0,0">
+                    <Image Source="Assets/ActionsRingLogo.png" Width="29" Height="29" Stretch="Uniform" />
+                    <TextBlock x:Name="BrandNameText" Text="Actions Ring" FontFamily="{DynamicResource DisplayFont}" FontWeight="SemiBold" FontSize="15" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" x:Name="PageCaption" Text="Кольцо действий" Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="18,0" />
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,7,0">
+                    <Button Style="{StaticResource WindowButton}" Content="&#x2212;" Click="OnMinimize" ToolTip="Свернуть" />
+                    <Button x:Name="MaximizeButton" Style="{StaticResource WindowButton}" Content="&#x25A1;" Click="OnMaximize" ToolTip="Развернуть" />
+                    <Button Style="{StaticResource WindowButton}" Content="&#x00D7;" Click="OnClose" ToolTip="Закрыть в трей" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="210" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+
+            <!-- Sidebar -->
+            <Border Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+                <Grid Margin="14,20,14,16">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <TextBlock x:Name="SidebarHeading" Text="НАСТРОЙКА" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextMutedBrush}" Margin="14,0,0,11" />
+                    <StackPanel Grid.Row="1">
+                        <RadioButton x:Name="RingNav" GroupName="Navigation" Tag="&#xE945;" Content="Кольцо действий" ToolTip="Кольцо действий" Style="{StaticResource NavRadio}" IsChecked="True" Click="OnNavigate" CommandParameter="Ring" />
+                        <RadioButton x:Name="ProfilesNav" GroupName="Navigation" Tag="&#xE716;" Content="Профили" ToolTip="Профили и приложения" Style="{StaticResource NavRadio}" Click="OnNavigate" CommandParameter="Profiles" />
+                        <RadioButton x:Name="TriggerNav" GroupName="Navigation" Tag="&#xE765;" Content="Вызов кольца" ToolTip="Вызов кольца" Style="{StaticResource NavRadio}" Click="OnNavigate" CommandParameter="Trigger" />
+                        <RadioButton x:Name="SettingsNav" GroupName="Navigation" Tag="&#xE713;" Content="Настройки" ToolTip="Настройки" Style="{StaticResource NavRadio}" Click="OnNavigate" CommandParameter="Settings" />
+                        <RadioButton x:Name="AboutNav" GroupName="Navigation" Tag="&#xE946;" Content="О программе" ToolTip="О программе" Style="{StaticResource NavRadio}" Click="OnNavigate" CommandParameter="About" />
+                    </StackPanel>
+
+                    <Border x:Name="RuntimeCard" Grid.Row="2" Style="{StaticResource CardBorder}" Padding="13" CornerRadius="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Ellipse x:Name="RuntimeDot" Width="9" Height="9" Fill="{DynamicResource SuccessBrush}" VerticalAlignment="Top" Margin="0,4,10,0" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock x:Name="RuntimeStatus" Text="Кольцо активно" FontWeight="SemiBold" FontSize="12" />
+                                <TextBlock x:Name="ActiveProfileStatus" Text="Глобальный профиль" Style="{StaticResource CaptionText}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Main pages -->
+            <Grid Grid.Column="1" Background="{DynamicResource WindowBrush}">
+                <Grid x:Name="EditorPage">
+                    <Grid.RowDefinitions><RowDefinition Height="78" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+
+                    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Background="{DynamicResource SurfaceBrush}">
+                        <Grid x:Name="ProfileHeaderGrid" Margin="24,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel x:Name="ProfileSummaryPanel" VerticalAlignment="Center">
+                                <TextBlock Text="Профиль пользователя" Style="{StaticResource CaptionText}" />
+                                <ComboBox x:Name="UserProfileCombo" Width="170" Margin="0,3,0,0"
+                                          SelectionChanged="OnUserProfileSelectionChanged"
+                                          DisplayMemberPath="Name" SelectedValuePath="Id" />
+                            </StackPanel>
+                            <ScrollViewer x:Name="ProfileTabsScroller" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="24,0">
+                                <StackPanel x:Name="ProfileTabsPanel" Orientation="Horizontal" VerticalAlignment="Center" />
+                            </ScrollViewer>
+                            <Button x:Name="AddProfileButton" Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="+ Приложение" Click="OnAddProfile" VerticalAlignment="Center" ToolTip="Добавить приложение" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions><ColumnDefinition x:Name="EditorCanvasColumn" Width="3*" MinWidth="390" /><ColumnDefinition x:Name="ActionLibraryColumn" Width="2*" MinWidth="220" MaxWidth="360" /></Grid.ColumnDefinitions>
+
+                        <ScrollViewer x:Name="EditorCanvasScroller"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <Grid x:Name="EditorCanvasLayout" Margin="20,16,18,16">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Grid x:Name="EditorToolbar">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel x:Name="EditorHeadingPanel" Grid.ColumnSpan="2" Margin="0,0,0,12">
+                                        <TextBlock x:Name="EditorHeading" Text="Настройте своё кольцо" Style="{StaticResource TitleText}" FontSize="28" TextWrapping="NoWrap" />
+                                        <TextBlock x:Name="EditorHelpText" Text="Перетащите действие на пузырь или выберите пузырь и нажмите действие справа." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="EditorToolbarActions" Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <ComboBox x:Name="RingStyleCombo" Width="138" SelectionChanged="OnRingStyleChanged">
+                                            <ComboBoxItem Content="Системная" Tag="Inherit" />
+                                            <ComboBoxItem Content="Светлая" Tag="Light" />
+                                            <ComboBoxItem Content="Тёмная" Tag="Dark" />
+                                            <ComboBoxItem Content="Океан" Tag="Ocean" />
+                                            <ComboBoxItem Content="Фиолетовая" Tag="Purple" />
+                                            <ComboBoxItem Content="Своя тема" Tag="Custom" />
+                                        </ComboBox>
+                                        <Button x:Name="EditRingColorsButton" Style="{StaticResource SecondaryButton}" Content="Цвета" Click="OnEditRingColors" Margin="9,0,0,0" ToolTip="Настроить свою тему кольца" Visibility="Collapsed" />
+                                        <Button x:Name="ResetRingButton" Style="{StaticResource SecondaryButton}" Content="По умолчанию" Click="OnResetRing" Margin="9,0,0,0" ToolTip="Вернуть действия по умолчанию" />
+                                        <Button x:Name="PreviewRingButton" Style="{StaticResource PrimaryButton}" Content="Проверить" Click="OnPreviewRing" Margin="9,0,0,0" ToolTip="Открыть предпросмотр у курсора" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Grid.Row="1" ClipToBounds="False">
+                                    <controls:RingMenuControl x:Name="RingEditor" MinWidth="350" MinHeight="150" MaxWidth="620" MaxHeight="520" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                </Grid>
+
+                                <Border Grid.Row="2" x:Name="SelectedSlotCard" Style="{StaticResource CardBorder}" Padding="15" CornerRadius="15">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <Border Width="42" Height="42" CornerRadius="21" Background="{DynamicResource AccentSoftBrush}">
+                                            <TextBlock x:Name="SelectedSlotGlyph" Text="+" FontFamily="{DynamicResource IconFont}" FontSize="18" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                            <TextBlock x:Name="SelectedSlotTitle" Text="Выберите пузырь" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="SelectedSlotDescription" Text="Затем назначьте действие из библиотеки" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="SlotAppearanceButton" Style="{StaticResource SecondaryButton}" Content="Цвета" Click="OnEditSelectedSlotAppearance" IsEnabled="False" ToolTip="Индивидуальные цвета пузыря" />
+                                            <Button x:Name="EditSlotButton" Style="{StaticResource SecondaryButton}" Content="Изменить" Click="OnEditSelectedSlot" IsEnabled="False" Margin="8,0,0,0" ToolTip="Изменить действие" />
+                                            <Button x:Name="ClearSlotButton" Style="{StaticResource SecondaryButton}" Content="Очистить" Click="OnClearSelectedSlot" IsEnabled="False" Margin="8,0,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </ScrollViewer>
+
+                        <Border Grid.Column="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1,0,0,0">
+                            <Grid Margin="18,20,14,14">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                <Grid>
+                                    <TextBlock Text="Все действия" Style="{StaticResource SectionTitleText}" />
+                                    <TextBlock Text="&#xE721;" FontFamily="{DynamicResource IconFont}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                </Grid>
+                                <Grid Grid.Row="1" Margin="0,15,0,12">
+                                    <TextBox x:Name="ActionSearchBox" Padding="12,8,36,8" TextChanged="OnActionSearchChanged" ToolTip="Поиск действий" />
+                                    <Button x:Name="ClearActionSearchButton" Style="{StaticResource IconButton}" Content="×"
+                                            FontFamily="{DynamicResource UiFont}" FontSize="17" Width="30" Height="30" Margin="0,0,4,0"
+                                            HorizontalAlignment="Right" VerticalAlignment="Center" Visibility="Collapsed"
+                                            Click="OnClearActionSearch" ToolTip="Очистить поиск" />
+                                </Grid>
+                                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="ActionGroupsPanel" Margin="0,0,4,10" />
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </Grid>
+
+                <!-- User profiles and their application contexts -->
+                <Grid x:Name="ProfilesPage" Visibility="Collapsed" Margin="36,30">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid>
+                        <StackPanel>
+                            <TextBlock Text="Профили" Style="{StaticResource TitleText}" />
+                            <TextBlock Text="Переключайтесь между наборами колец для работы, дома или разных задач." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,6,0,0" />
+                        </StackPanel>
+                        <Button Style="{StaticResource PrimaryButton}" Content="+ Новый профиль" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnAddUserProfile" />
+                    </Grid>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,22,0,0">
+                        <StackPanel Margin="0,0,8,24">
+                            <TextBlock Text="ПОЛЬЗОВАТЕЛЬСКИЕ ПРОФИЛИ" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" />
+                            <StackPanel x:Name="UserProfilesListPanel" Margin="0,10,0,22" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Margin="0,0,18,0">
+                                    <TextBlock x:Name="ApplicationsSectionTitle" Text="ПРИЛОЖЕНИЯ · ОСНОВНОЙ" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource TextMutedBrush}" />
+                                    <TextBlock Text="Для активного приложения автоматически выбирается отдельное кольцо; иначе используется «Все приложения»."
+                                               Style="{StaticResource CaptionText}" Margin="0,6,0,0" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <Button Style="{StaticResource SecondaryButton}" Content="Активное окно" Click="OnAddActiveApplication" />
+                                    <Button Style="{StaticResource PrimaryButton}" Content="+ Добавить приложение" Click="OnAddProfile" Margin="8,0,0,0" />
+                                </StackPanel>
+                            </Grid>
+                            <Border Style="{StaticResource CardBorder}" Margin="0,14,0,14" Background="{DynamicResource AccentSoftBrush}" BorderThickness="0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <TextBlock Text="&#xE946;" FontFamily="{DynamicResource IconFont}" FontSize="20" Foreground="{DynamicResource AccentBrush}" Margin="0,1,13,0" />
+                                    <TextBlock Grid.Column="1" Text="Если совпало несколько приложений, используется правило с наибольшим приоритетом." Foreground="{DynamicResource TextSecondaryBrush}" />
+                                </Grid>
+                            </Border>
+                            <StackPanel x:Name="ProfilesListPanel" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- Trigger page -->
+                <Grid x:Name="TriggerPage" Visibility="Collapsed" Margin="36,30">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Вызов кольца" Style="{StaticResource TitleText}" />
+                        <TextBlock Text="Назначьте любую клавишу, сочетание или кнопку мыши — включая обе боковые кнопки и колесо." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,6,0,0" />
+                    </StackPanel>
+                    <Grid Grid.Row="1" Margin="0,28,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="1.25*" /><ColumnDefinition Width="1*" /></Grid.ColumnDefinitions>
+                        <Border Style="{StaticResource CardBorder}" Margin="0,0,12,0">
+                            <StackPanel>
+                                <TextBlock Text="Текущий ввод" Style="{StaticResource CaptionText}" />
+                                <Border Margin="0,14,0,0" Padding="18" Background="{DynamicResource SurfaceRaisedBrush}" CornerRadius="16">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="58" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Border Width="48" Height="48" CornerRadius="24" Background="{DynamicResource AccentSoftBrush}">
+                                            <TextBlock x:Name="TriggerGlyph" Text="&#xE962;" FontFamily="{DynamicResource IconFont}" FontSize="22" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock x:Name="TriggerDescription" Text="Боковая кнопка 2 (Вперёд)" FontSize="17" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="TriggerModeDescription" Text="Удерживать для выбора" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                                <Button x:Name="CaptureTriggerButton" Style="{StaticResource PrimaryButton}" Content="Записать новый ввод" Click="OnCaptureTrigger" Margin="0,17,0,0" HorizontalAlignment="Left" />
+                                <Border x:Name="TriggerWarning" Background="#24FFB451" CornerRadius="11" Padding="12" Margin="0,12,0,0" Visibility="Collapsed">
+                                    <TextBlock x:Name="TriggerWarningText" Foreground="#FFB451" FontSize="12" />
+                                </Border>
+                                <TextBlock Text="Esc отменяет запись. Alt и Win можно назначить отдельно; сочетания с ними зарезервированы Windows." Style="{StaticResource CaptionText}" Margin="0,14,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                            <Border Style="{StaticResource CardBorder}">
+                                <StackPanel>
+                                    <TextBlock Text="Поведение" Style="{StaticResource SectionTitleText}" />
+                                    <RadioButton x:Name="HoldModeRadio" GroupName="ActivationMode" Content="Удерживать" Margin="0,18,0,0" Checked="OnActivationModeChanged" />
+                                    <TextBlock Text="Зажмите ввод, наведитесь на действие и отпустите — самый быстрый режим." Style="{StaticResource CaptionText}" Margin="24,4,0,0" />
+                                    <RadioButton x:Name="ToggleModeRadio" GroupName="ActivationMode" Content="Нажать и отпустить" Margin="0,18,0,0" Checked="OnActivationModeChanged" />
+                                    <TextBlock Text="Кольцо остаётся открытым до клика по действию, центру или вне кольца." Style="{StaticResource CaptionText}" Margin="24,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                            <Button Style="{StaticResource SecondaryButton}" Content="Проверить кольцо" Click="OnPreviewRing" Margin="0,14,0,0" HorizontalAlignment="Stretch" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
+                <!-- Settings page -->
+                <Grid x:Name="SettingsPage" Visibility="Collapsed" Margin="36,30">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Настройки" Style="{StaticResource TitleText}" />
+                        <TextBlock Text="Поведение в Windows и внешний вид кольца." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,6,0,0" />
+                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,24,0,0">
+                        <StackPanel Margin="0,0,10,30">
+                            <Border Style="{StaticResource CardBorder}" Padding="22,8">
+                                <StackPanel>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Запускать вместе с Windows" FontWeight="SemiBold" /><TextBlock Text="Появится в разделе «Автозагрузка приложений» Диспетчера задач." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="StartupToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Запускать свёрнутым" FontWeight="SemiBold" /><TextBlock Text="При автозапуске оставаться только в системном трее." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="StartMinimizedToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Закрывать в трей" FontWeight="SemiBold" /><TextBlock Text="Крестик окна скрывает настройки, но кольцо продолжает работать." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="CloseToTrayToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}" BorderThickness="0">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Индикаторы клавиш" FontWeight="SemiBold" /><TextBlock Text="Показывать состояние Caps Lock, Num Lock и Scroll Lock после переключения." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="KeyStateNotificationsToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Padding="22,8" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="190" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Тема приложения" FontWeight="SemiBold" /><TextBlock Text="Системная, светлая или тёмная." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <ComboBox x:Name="ThemeCombo" Grid.Column="1" SelectionChanged="OnThemeChanged">
+                                                <ComboBoxItem Content="Как в Windows" Tag="System" />
+                                                <ComboBoxItem Content="Светлая" Tag="Light" />
+                                                <ComboBoxItem Content="Тёмная" Tag="Dark" />
+                                            </ComboBox>
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Подстраивать под монитор" FontWeight="SemiBold" /><TextBlock Text="Учитывать разрешение, рабочую область и масштаб DPI экрана под курсором." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="AutoScaleToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Размер кольца" FontWeight="SemiBold" /><TextBlock x:Name="RingSizeLabel" Text="100% · 212 DIP" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <Slider x:Name="RingSizeSlider" Grid.Column="1" Minimum="160" Maximum="424" TickFrequency="2" ValueChanged="OnRingSizeChanged" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Центральная кнопка" FontWeight="SemiBold" /><TextBlock x:Name="CenterSizeLabel" Text="32 DIP" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <Slider x:Name="CenterSizeSlider" Grid.Column="1" Minimum="28" Maximum="72" TickFrequency="1" ValueChanged="OnCenterSizeChanged" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Подсказки действий" FontWeight="SemiBold" /><TextBlock Text="Показывать название пузыря после наведения." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="TooltipsToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Задержка подсказки" FontWeight="SemiBold" /><TextBlock x:Name="TooltipDelayLabel" Text="350 мс" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <Slider x:Name="TooltipDelaySlider" Grid.Column="1" Minimum="0" Maximum="1500" TickFrequency="50" IsSnapToTickEnabled="True" ValueChanged="OnTooltipDelayChanged" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Анимации" FontWeight="SemiBold" /><TextBlock Text="Включает или отключает всё движение и плавные переходы." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="AnimationsToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}" BorderThickness="0">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Уменьшить движение" FontWeight="SemiBold" /><TextBlock Text="Сохраняет короткое плавное затемнение, но убирает масштабирование и перемещение." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="ReduceMotionToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Margin="0,16,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel><TextBlock Text="Данные и восстановление" FontWeight="SemiBold" /><TextBlock Text="Настройки автоматически сохраняются в JSON с резервной копией." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                    <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Экспорт" Click="OnExportConfig" />
+                                    <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="Импорт" Click="OnImportConfig" Margin="8,0,0,0" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- About page -->
+                <Grid x:Name="AboutPage" Visibility="Collapsed" Margin="36,30">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <TextBlock Text="О программе" Style="{StaticResource TitleText}" />
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Width="560">
+                        <Image Source="Assets/ActionsRingLogo.png" Width="104" Height="104" Stretch="Uniform" />
+                        <TextBlock Text="Actions Ring" FontFamily="{DynamicResource DisplayFont}" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,18,0,0" />
+                        <TextBlock x:Name="VersionText" Text="Версия 2.0.0" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,5,0,0" />
+                        <TextBlock Text="Быстрое контекстное кольцо действий для Windows. Работает локально и не отправляет ваши профили или ввод в сеть." TextAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,18,0,0" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,22,0,0">
+                            <Button Style="{StaticResource SecondaryButton}" Content="Открыть папку настроек" Click="OnOpenSettingsFolder" />
+                            <Button Style="{StaticResource SecondaryButton}" Content="Открыть журнал" Click="OnOpenLog" Margin="9,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+
+                <!-- In-app status toast -->
+                <Border x:Name="StatusToast" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,20" Padding="15,10"
+                        CornerRadius="12" Background="{DynamicResource OverlayHintBrush}" Opacity="0" IsHitTestVisible="False">
+                    <TextBlock x:Name="StatusToastText" Foreground="White" FontWeight="SemiBold" />
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- First-run wizard -->
+        <Grid x:Name="OnboardingLayer" Grid.RowSpan="2" Background="#A8000000" Visibility="Collapsed" Panel.ZIndex="100">
+            <Border x:Name="OnboardingDialog" MaxWidth="760" MaxHeight="540" Margin="22" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="24" Padding="26" Effect="{StaticResource CardShadow}">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="StepDot1" Width="9" Height="9" Fill="{DynamicResource AccentBrush}" Margin="0,0,7,0" />
+                            <Ellipse x:Name="StepDot2" Width="9" Height="9" Fill="{DynamicResource BorderBrush}" Margin="0,0,7,0" />
+                            <Ellipse x:Name="StepDot3" Width="9" Height="9" Fill="{DynamicResource BorderBrush}" />
+                        </StackPanel>
+                        <Button Style="{StaticResource IconButton}" Content="&#x00D7;" FontFamily="{DynamicResource UiFont}" FontSize="20" HorizontalAlignment="Right" Click="OnSkipOnboarding" ToolTip="Пропустить" />
+                    </Grid>
+                    <ScrollViewer x:Name="OnboardingContentScroller" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <Grid x:Name="OnboardingContentGrid">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="0.95*" /></Grid.ColumnDefinitions>
+                            <StackPanel x:Name="OnboardingTextPanel" VerticalAlignment="Center" Margin="4,0,28,0">
+                                <TextBlock x:Name="OnboardingEyebrow" Text="ШАГ 1 ИЗ 3" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource AccentBrush}" />
+                                <TextBlock x:Name="OnboardingTitle" Text="Действия всегда под курсором" Style="{StaticResource TitleText}" FontSize="34" Margin="0,12,0,0" />
+                                <TextBlock x:Name="OnboardingBody" Text="Вызовите кольцо, наведитесь на пузырь и отпустите кнопку. Профиль автоматически меняется вместе с активным приложением." Foreground="{DynamicResource TextSecondaryBrush}" FontSize="14" LineHeight="22" Margin="0,14,0,0" />
+                                <Border x:Name="OnboardingTriggerCard" Style="{StaticResource CardBorder}" Margin="0,20,0,0" Visibility="Collapsed">
+                                    <StackPanel>
+                                        <TextBlock Text="Текущий ввод" Style="{StaticResource CaptionText}" />
+                                        <TextBlock x:Name="OnboardingTriggerText" Text="Боковая кнопка 2 (Вперёд)" FontSize="17" FontWeight="SemiBold" Margin="0,5,0,0" />
+                                        <Button x:Name="OnboardingCaptureButton" Style="{StaticResource SecondaryButton}" Content="Записать другой" Click="OnCaptureTrigger" HorizontalAlignment="Left" Margin="0,13,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <Border x:Name="OnboardingRingHost" Grid.Column="1" Background="{DynamicResource WindowBrush}" CornerRadius="22" Margin="12,24,0,24">
+                                <controls:RingMenuControl x:Name="OnboardingRing" Width="300" Height="300" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" />
+                            </Border>
+                        </Grid>
+                    </ScrollViewer>
+                    <Grid Grid.Row="2">
+                        <Button x:Name="OnboardingBackButton" Style="{StaticResource SecondaryButton}" Content="Назад" Click="OnOnboardingBack" Visibility="Hidden" HorizontalAlignment="Left" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Style="{StaticResource SecondaryButton}" Content="Пропустить" Click="OnSkipOnboarding" />
+                            <Button x:Name="OnboardingNextButton" Style="{StaticResource PrimaryButton}" Content="Далее" Click="OnOnboardingNext" Margin="9,0,0,0" MinWidth="110" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

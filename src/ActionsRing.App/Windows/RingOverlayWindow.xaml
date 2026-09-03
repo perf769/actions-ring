@@ -1,0 +1,23 @@
+<Window x:Class="ActionsRing.App.Windows.RingOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ActionsRing.App.Controls"
+        Title="Actions Ring"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        Focusable="False"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+    <Grid x:Name="OverlayRoot"
+          Background="Transparent"
+          MouseLeftButtonDown="OnOverlayMouseDown">
+        <controls:RingMenuControl x:Name="Ring"
+                                  HorizontalAlignment="Stretch"
+                                  VerticalAlignment="Stretch" />
+    </Grid>
+</Window>

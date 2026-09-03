@@ -1,0 +1,146 @@
+<Window x:Class="ActionsRing.App.Windows.ColorPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Выбор цвета"
+        Width="650"
+        Height="630"
+        MinWidth="520"
+        MinHeight="480"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WindowBrush}">
+    <Grid x:Name="LayoutRoot" Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Выберите цвет" Style="{StaticResource SectionTitleText}" />
+            <TextBlock Text="Перемещайте указатель по цветовой области, затем уточните оттенок или значения RGB."
+                       Style="{StaticResource CaptionText}" Margin="0,6,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,22,0,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Border Style="{StaticResource CardBorder}" Margin="0,0,4,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="3*" MinWidth="250" />
+                        <ColumnDefinition Width="20" />
+                        <ColumnDefinition Width="2*" MinWidth="170" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel>
+                        <Grid x:Name="ColorArea" Height="220" ClipToBounds="True"
+                              MouseLeftButtonDown="OnColorAreaMouseDown"
+                              MouseLeftButtonUp="OnColorAreaMouseUp"
+                              MouseMove="OnColorAreaMouseMove"
+                              LostMouseCapture="OnColorAreaLostCapture">
+                            <Border x:Name="HueBase" CornerRadius="12" Background="#FF0000" />
+                            <Border CornerRadius="12">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                        <GradientStop Offset="0" Color="#FFFFFFFF" />
+                                        <GradientStop Offset="1" Color="#00FFFFFF" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Border CornerRadius="12">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                        <GradientStop Offset="0" Color="#00000000" />
+                                        <GradientStop Offset="1" Color="#FF000000" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Ellipse x:Name="ColorPointer" Width="18" Height="18"
+                                     HorizontalAlignment="Left" VerticalAlignment="Top"
+                                     Stroke="White" StrokeThickness="3" Fill="Transparent"
+                                     IsHitTestVisible="False">
+                                <Ellipse.Effect>
+                                    <DropShadowEffect BlurRadius="4" ShadowDepth="0" Color="Black" Opacity="0.8" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Grid>
+
+                        <TextBlock Text="Оттенок" Style="{StaticResource CaptionText}" Margin="2,18,0,6" />
+                        <Grid>
+                            <Border Height="12" CornerRadius="6" VerticalAlignment="Center">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5">
+                                        <GradientStop Offset="0.000" Color="#FFFF0000" />
+                                        <GradientStop Offset="0.167" Color="#FFFFFF00" />
+                                        <GradientStop Offset="0.333" Color="#FF00FF00" />
+                                        <GradientStop Offset="0.500" Color="#FF00FFFF" />
+                                        <GradientStop Offset="0.667" Color="#FF0000FF" />
+                                        <GradientStop Offset="0.833" Color="#FFFF00FF" />
+                                        <GradientStop Offset="1.000" Color="#FFFF0000" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Slider x:Name="HueSlider" Minimum="0" Maximum="359.999" Height="28"
+                                    Background="Transparent" ValueChanged="OnHueChanged" />
+                        </Grid>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Предпросмотр" Style="{StaticResource CaptionText}" />
+                        <Border x:Name="PreviewBorder" Height="88" Margin="0,8,0,14"
+                                CornerRadius="16" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                            <TextBlock Text="Aa" FontSize="30" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+
+                        <TextBlock Text="HEX" Style="{StaticResource CaptionText}" Margin="2,0,0,6" />
+                        <TextBox x:Name="HexBox" MaxLength="9" TextChanged="OnHexChanged"
+                                 KeyDown="OnFieldKeyDown" LostKeyboardFocus="OnHexLostFocus" />
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="10" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="R" Style="{StaticResource CaptionText}" Margin="2,0,0,6" />
+                                <TextBox x:Name="RedBox" MaxLength="3" Padding="4,9" TextAlignment="Center" TextChanged="OnRgbChanged"
+                                         KeyDown="OnFieldKeyDown" LostKeyboardFocus="OnRgbLostFocus" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="G" Style="{StaticResource CaptionText}" Margin="2,0,0,6" />
+                                <TextBox x:Name="GreenBox" MaxLength="3" Padding="4,9" TextAlignment="Center" TextChanged="OnRgbChanged"
+                                         KeyDown="OnFieldKeyDown" LostKeyboardFocus="OnRgbLostFocus" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="4">
+                                <TextBlock Text="B" Style="{StaticResource CaptionText}" Margin="2,0,0,6" />
+                                <TextBox x:Name="BlueBox" MaxLength="3" Padding="4,9" TextAlignment="Center" TextChanged="OnRgbChanged"
+                                         KeyDown="OnFieldKeyDown" LostKeyboardFocus="OnRgbLostFocus" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock x:Name="ValidationText" MinHeight="24" Margin="2,8,0,0"
+                                   Foreground="{DynamicResource DangerBrush}" FontSize="12" TextWrapping="Wrap" />
+                        <Button Content="Вернуть исходный" Style="{StaticResource SecondaryButton}"
+                                HorizontalAlignment="Stretch" Margin="0,6,0,0" Click="OnReset" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Margin="0,20,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="1" Content="Отмена" Style="{StaticResource SecondaryButton}"
+                    MinWidth="100" Click="OnCancel" />
+            <Button Grid.Column="2" Content="Выбрать" Style="{StaticResource PrimaryButton}"
+                    MinWidth="110" Margin="10,0,0,0" Click="OnAccept" />
+        </Grid>
+    </Grid>
+</Window>

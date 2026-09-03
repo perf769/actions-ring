@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/ActionsRing.Core/ActionsRing.Core.csproj" />
+  <Project Path="src/ActionsRing.Platform.Windows/ActionsRing.Platform.Windows.csproj" />
+  <Project Path="src/ActionsRing.App/ActionsRing.App.csproj" />
+  <Project Path="tests/ActionsRing.Core.Tests/ActionsRing.Core.Tests.csproj" />
+  <Project Path="tests/ActionsRing.App.Tests/ActionsRing.App.Tests.csproj" />
+</Solution>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Actions Ring</title>
+  <desc id="description">Eight action nodes arranged around a cursor.</desc>
+  <g fill="#824EF9">
+    <circle cx="386" cy="126" r="34"/>
+    <circle cx="440" cy="256" r="34"/>
+    <circle cx="386" cy="386" r="34"/>
+    <circle cx="256" cy="440" r="34"/>
+    <circle cx="126" cy="386" r="34"/>
+    <circle cx="72" cy="256" r="34"/>
+    <circle cx="126" cy="126" r="34"/>
+  </g>
+  <circle cx="256" cy="72" r="34" fill="#65D9B0"/>
+  <path d="M205 165v185l49-49 46 92 39-20-47-89 69-8z"
+        fill="#1B1D22" stroke="#FFFFFF" stroke-width="14" stroke-linejoin="round"/>
+</svg>

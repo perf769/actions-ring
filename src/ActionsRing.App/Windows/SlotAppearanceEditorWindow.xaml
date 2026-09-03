@@ -1,0 +1,124 @@
+<Window x:Class="ActionsRing.App.Windows.SlotAppearanceEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Цвета пузыря"
+        Width="700"
+        Height="640"
+        MinWidth="560"
+        MinHeight="500"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WindowBrush}">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="Цвета отдельного пузыря" Style="{StaticResource SectionTitleText}" />
+            <TextBlock x:Name="SlotCaption" Style="{StaticResource CaptionText}" Margin="0,6,0,0" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,22,0,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="0,0,4,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*" MinWidth="280" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="2*" MinWidth="180" />
+                </Grid.ColumnDefinitions>
+
+                <Border Style="{StaticResource CardBorder}">
+                    <StackPanel>
+                        <TextBlock Text="Индивидуальные цвета" FontSize="15" FontWeight="SemiBold" />
+                        <TextBlock Text="Включите только те параметры, которые должны отличаться от темы кольца."
+                                   Style="{StaticResource CaptionText}" Margin="0,5,0,10" />
+
+                        <Grid Margin="0,8,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <CheckBox x:Name="BubbleEnabled" VerticalAlignment="Center" Checked="OnOverrideChanged" Unchecked="OnOverrideChanged" />
+                            <StackPanel Grid.Column="1" Margin="10,0">
+                                <TextBlock Text="Пузырь" FontWeight="SemiBold" />
+                                <TextBlock x:Name="BubbleHex" Style="{StaticResource CaptionText}" FontFamily="Consolas" />
+                            </StackPanel>
+                            <Button x:Name="BubbleButton" Grid.Column="2" Tag="Bubble" Click="OnChooseColor"
+                                    Style="{StaticResource SecondaryButton}" Padding="8">
+                                <Border x:Name="BubbleSwatch" Width="34" Height="34" CornerRadius="10"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+                            </Button>
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <CheckBox x:Name="BubbleHoverEnabled" VerticalAlignment="Center" Checked="OnOverrideChanged" Unchecked="OnOverrideChanged" />
+                            <StackPanel Grid.Column="1" Margin="10,0">
+                                <TextBlock Text="Пузырь при наведении" FontWeight="SemiBold" />
+                                <TextBlock x:Name="BubbleHoverHex" Style="{StaticResource CaptionText}" FontFamily="Consolas" />
+                            </StackPanel>
+                            <Button x:Name="BubbleHoverButton" Grid.Column="2" Tag="BubbleHover" Click="OnChooseColor"
+                                    Style="{StaticResource SecondaryButton}" Padding="8">
+                                <Border x:Name="BubbleHoverSwatch" Width="34" Height="34" CornerRadius="10"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+                            </Button>
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <CheckBox x:Name="IconEnabled" VerticalAlignment="Center" Checked="OnOverrideChanged" Unchecked="OnOverrideChanged" />
+                            <StackPanel Grid.Column="1" Margin="10,0">
+                                <TextBlock Text="Иконка" FontWeight="SemiBold" />
+                                <TextBlock x:Name="IconHex" Style="{StaticResource CaptionText}" FontFamily="Consolas" />
+                            </StackPanel>
+                            <Button x:Name="IconButton" Grid.Column="2" Tag="Icon" Click="OnChooseColor"
+                                    Style="{StaticResource SecondaryButton}" Padding="8">
+                                <Border x:Name="IconSwatch" Width="34" Height="34" CornerRadius="10"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+                            </Button>
+                        </Grid>
+                        <Grid Margin="0,14,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <CheckBox x:Name="IconHoverEnabled" VerticalAlignment="Center" Checked="OnOverrideChanged" Unchecked="OnOverrideChanged" />
+                            <StackPanel Grid.Column="1" Margin="10,0">
+                                <TextBlock Text="Иконка при наведении" FontWeight="SemiBold" />
+                                <TextBlock x:Name="IconHoverHex" Style="{StaticResource CaptionText}" FontFamily="Consolas" />
+                            </StackPanel>
+                            <Button x:Name="IconHoverButton" Grid.Column="2" Tag="IconHover" Click="OnChooseColor"
+                                    Style="{StaticResource SecondaryButton}" Padding="8">
+                                <Border x:Name="IconHoverSwatch" Width="34" Height="34" CornerRadius="10"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" />
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="2" Style="{StaticResource CardBorder}">
+                    <StackPanel>
+                        <TextBlock Text="Предпросмотр" FontSize="15" FontWeight="SemiBold" />
+                        <TextBlock Text="Обычный" Style="{StaticResource CaptionText}" Margin="0,18,0,8" />
+                        <Border x:Name="RestBubble" Width="96" Height="96" CornerRadius="48" HorizontalAlignment="Center">
+                            <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.22" Color="Black" /></Border.Effect>
+                            <TextBlock x:Name="RestIcon" Text="&#xE8C8;" FontFamily="{DynamicResource IconFont}" FontSize="34"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="При наведении" Style="{StaticResource CaptionText}" Margin="0,22,0,8" />
+                        <Border x:Name="HoverBubble" Width="168" Height="64" CornerRadius="32" HorizontalAlignment="Center">
+                            <Border.Effect><DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.25" Color="Black" /></Border.Effect>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock x:Name="HoverIcon" Text="&#xE8C8;" FontFamily="{DynamicResource IconFont}" FontSize="28" />
+                                <TextBlock x:Name="HoverLabel" Text="Копировать" Margin="10,0,0,0" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Border>
+                        <Button Content="Использовать цвета темы" Style="{StaticResource SecondaryButton}"
+                                Margin="0,28,0,0" Click="OnReset" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Margin="0,20,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Button Grid.Column="1" Content="Отмена" Style="{StaticResource SecondaryButton}" MinWidth="100" Click="OnCancel" />
+            <Button Grid.Column="2" Content="Сохранить" Style="{StaticResource PrimaryButton}" MinWidth="110" Margin="10,0,0,0" Click="OnSave" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,58 @@
+<Window x:Class="ActionsRing.App.Windows.FolderEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройка папки"
+        Width="520"
+        Height="390"
+        MinWidth="480"
+        MinHeight="360"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Background="{DynamicResource WindowBrush}">
+    <Grid x:Name="LayoutRoot" Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel x:Name="HeaderPanel">
+            <TextBlock Text="Папка действий" Style="{StaticResource SectionTitleText}" />
+            <TextBlock Text="Подменю раскрывается наружу от выбранного пузыря и может содержать до девяти действий."
+                       Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+        </StackPanel>
+
+        <ScrollViewer x:Name="FolderContentScroller" Grid.Row="1" Margin="0,22,0,0"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Border x:Name="FolderCard" Style="{StaticResource CardBorder}" Margin="0,0,4,0">
+                <StackPanel>
+                    <TextBlock Text="Название" Style="{StaticResource CaptionText}" Margin="2,0,0,7" />
+                    <TextBox x:Name="NameBox" MaxLength="80" />
+
+                    <Grid x:Name="SlotCountPanel" Margin="0,22,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Количество пузырей" FontWeight="SemiBold" />
+                            <TextBlock Text="При уменьшении заполненные позиции потребуют подтверждения."
+                                       Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,18,0" />
+                        </StackPanel>
+                        <TextBlock x:Name="SlotCountText" Grid.Column="1" Text="6" FontSize="28" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource AccentBrush}" VerticalAlignment="Top" />
+                    </Grid>
+                    <Slider x:Name="SlotCountSlider" Minimum="1" Maximum="9" TickFrequency="1" IsSnapToTickEnabled="True"
+                            Margin="0,14,0,0" ValueChanged="OnSlotCountChanged" />
+                </StackPanel>
+            </Border>
+        </ScrollViewer>
+
+        <Grid x:Name="FooterPanel" Grid.Row="2" Margin="0,20,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Отмена" Click="OnCancel" MinWidth="100" />
+            <Button Grid.Column="2" Style="{StaticResource PrimaryButton}" Content="Сохранить" Click="OnSave" MinWidth="110" Margin="10,0,0,0" />
+        </Grid>
+    </Grid>
+</Window>
