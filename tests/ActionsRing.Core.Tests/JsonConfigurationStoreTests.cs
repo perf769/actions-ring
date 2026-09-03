@@ -77,7 +77,7 @@ public sealed class JsonConfigurationStoreTests
         var parsed = ConfigurationDocumentParser.Parse(json);
 
         Assert.IsTrue(parsed.WasMigrated);
-        Assert.AreEqual(3, parsed.Configuration.SchemaVersion);
+        Assert.AreEqual(ConfigurationSchema.CurrentVersion, parsed.Configuration.SchemaVersion);
         Assert.AreEqual("Основной", parsed.Configuration.GetActiveUserProfile().Name);
         Assert.AreEqual("Моё кольцо", parsed.Configuration.GlobalProfile.Name);
         Assert.AreEqual("root-old", parsed.Configuration.GlobalProfile.RootRing.Id);
@@ -374,7 +374,7 @@ public sealed class JsonConfigurationStoreTests
         Assert.AreEqual(ConfigurationLoadStatus.Migrated, result.Status);
         Assert.AreEqual("Сохранённый профиль", result.Configuration.GetActiveUserProfile().Name);
         var persisted = await File.ReadAllTextAsync(workspace.SettingsPath);
-        StringAssert.Contains(persisted, "\"schemaVersion\": 3");
+        StringAssert.Contains(persisted, $"\"schemaVersion\": {ConfigurationSchema.CurrentVersion}");
     }
 
     [TestMethod]

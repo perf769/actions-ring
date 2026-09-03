@@ -1,0 +1,231 @@
+<ContextMenu x:Class="ActionsRing.App.Windows.TrayContextMenu"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="MenuRoot"
+             Width="318"
+             Background="Transparent"
+             BorderThickness="0"
+             Focusable="True"
+             HasDropShadow="False"
+             Placement="MousePoint"
+             SnapsToDevicePixels="True"
+             StaysOpen="False"
+             UseLayoutRounding="True"
+             KeyboardNavigation.DirectionalNavigation="Cycle"
+             KeyboardNavigation.TabNavigation="Cycle">
+    <ContextMenu.Resources>
+        <DropShadowEffect x:Key="TrayMenuShadow"
+                          BlurRadius="28"
+                          Color="#000000"
+                          Direction="270"
+                          Opacity="0.30"
+                          ShadowDepth="8" />
+
+        <Style x:Key="TrayMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="AutomationProperties.Name" Value="{Binding Header, RelativeSource={RelativeSource Self}}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="FontFamily" Value="{DynamicResource UiFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="Height" Value="44" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="ItemSurface"
+                                Margin="5,1"
+                                Padding="8,5"
+                                Background="Transparent"
+                                CornerRadius="10"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="34" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="24" />
+                                </Grid.ColumnDefinitions>
+
+                                <Border x:Name="IconSurface"
+                                        Width="28"
+                                        Height="28"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Background="{DynamicResource SurfaceRaisedBrush}"
+                                        CornerRadius="8">
+                                    <TextBlock HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontFamily="{DynamicResource IconFont}"
+                                               FontSize="14"
+                                               Foreground="{TemplateBinding Foreground}"
+                                               Text="{TemplateBinding Tag}"
+                                               TextWrapping="NoWrap" />
+                                </Border>
+
+                                <ContentPresenter Grid.Column="1"
+                                                  Margin="6,0,4,0"
+                                                  VerticalAlignment="Center"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
+
+                                <Grid x:Name="CheckBadge"
+                                      Grid.Column="2"
+                                      Width="18"
+                                      Height="18"
+                                      HorizontalAlignment="Right"
+                                      VerticalAlignment="Center"
+                                      Opacity="0">
+                                    <Border Background="{DynamicResource AccentBrush}" CornerRadius="6" />
+                                    <TextBlock HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               FontFamily="{DynamicResource IconFont}"
+                                               FontSize="10"
+                                               Foreground="White"
+                                               Text="&#xE73E;"
+                                               TextWrapping="NoWrap" />
+                                </Grid>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemSurface" Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+                                <Setter TargetName="IconSurface" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ItemSurface" Property="Background" Value="{DynamicResource SurfaceHoverBrush}" />
+                                <Setter TargetName="IconSurface" Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckBadge" Property="Opacity" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ItemSurface" Property="Opacity" Value="0.42" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TraySeparatorStyle" TargetType="Separator">
+            <Setter Property="Height" Value="9" />
+            <Setter Property="Margin" Value="17,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator">
+                        <Grid Background="Transparent">
+                            <Border Height="1"
+                                    VerticalAlignment="Center"
+                                    Background="{DynamicResource BorderBrush}"
+                                    SnapsToDevicePixels="True" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </ContextMenu.Resources>
+
+    <ContextMenu.Template>
+        <ControlTemplate TargetType="ContextMenu">
+            <Grid Margin="16">
+                <Border Background="{DynamicResource SurfaceBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="16"
+                        Effect="{StaticResource TrayMenuShadow}"
+                        SnapsToDevicePixels="True">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="1" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid Margin="15,14,15,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="38" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Width="34"
+                                    Height="34"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    Background="{DynamicResource AccentSoftBrush}"
+                                    CornerRadius="10">
+                                <Image Width="24"
+                                       Height="24"
+                                       RenderOptions.BitmapScalingMode="HighQuality"
+                                       Source="/ActionsRing;component/Assets/ActionsRingLogo.png"
+                                       Stretch="Uniform" />
+                            </Border>
+
+                            <StackPanel Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center">
+                                <TextBlock FontFamily="{DynamicResource DisplayFont}"
+                                           FontSize="14"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           Text="Actions Ring"
+                                           TextWrapping="NoWrap" />
+                                <StackPanel Margin="0,2,0,0" Orientation="Horizontal">
+                                    <Ellipse Width="6"
+                                             Height="6"
+                                             Margin="0,0,6,0"
+                                             VerticalAlignment="Center"
+                                             Fill="{Binding StatusBrush, RelativeSource={RelativeSource TemplatedParent}}" />
+                                    <TextBlock FontSize="11"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Text="{Binding StatusText, RelativeSource={RelativeSource TemplatedParent}}"
+                                               TextWrapping="NoWrap" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+
+                        <Border Grid.Row="1" Background="{DynamicResource BorderBrush}" />
+
+                        <ScrollViewer Grid.Row="2"
+                                      Margin="0,5,0,7"
+                                      MaxHeight="410"
+                                      CanContentScroll="True"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto">
+                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"
+                                            KeyboardNavigation.TabNavigation="Cycle" />
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
+        </ControlTemplate>
+    </ContextMenu.Template>
+
+    <MenuItem x:Name="ShowSettingsItem"
+              Header="Открыть настройки"
+              Style="{StaticResource TrayMenuItemStyle}"
+              Tag="&#xE713;" />
+    <MenuItem x:Name="ShowRingItem"
+              Header="Показать кольцо"
+              Style="{StaticResource TrayMenuItemStyle}"
+              Tag="&#xE945;" />
+    <Separator Style="{StaticResource TraySeparatorStyle}" />
+    <MenuItem x:Name="PauseItem"
+              Header="Приостановить кольцо"
+              IsCheckable="True"
+              StaysOpenOnClick="False"
+              Style="{StaticResource TrayMenuItemStyle}"
+              Tag="&#xE769;" />
+    <MenuItem x:Name="StartupItem"
+              Header="Запускать вместе с Windows"
+              IsCheckable="True"
+              StaysOpenOnClick="False"
+              Style="{StaticResource TrayMenuItemStyle}"
+              Tag="&#xE895;" />
+    <Separator Style="{StaticResource TraySeparatorStyle}" />
+    <MenuItem x:Name="ExitItem"
+              Header="Выйти"
+              Foreground="{DynamicResource DangerBrush}"
+              Style="{StaticResource TrayMenuItemStyle}"
+              Tag="&#xE8BB;" />
+</ContextMenu>

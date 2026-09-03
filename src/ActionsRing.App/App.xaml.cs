@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
 using ActionsRing.App.Services;
@@ -12,11 +13,15 @@ public partial class App : Application
     private SingleInstanceCoordinator? _singleInstance;
     private JsonConfigurationStore? _store;
     private ApplicationController? _controller;
+    private IUpdateService? _updateService;
     private TrayIconService? _tray;
     private MainWindow? _mainWindow;
+    private Task? _updateLaunchTask;
     private bool _pendingShowRing;
     private bool _pendingShowSettings;
+    private bool _pendingUpdateFailure;
     private int _exiting;
+    private int _updateInstallationStarted;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -67,7 +72,9 @@ public partial class App : Application
             var theme = new ThemeService();
             theme.Apply(load.Configuration.Preferences.Appearance);
             _controller = new ApplicationController(load.Configuration, _store, theme);
-            _mainWindow = new MainWindow(_controller, theme);
+            var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(2, 1, 0);
+            _updateService = new UpdateService(SemanticVersion.FromVersion(assemblyVersion));
+            _mainWindow = new MainWindow(_controller, theme, _updateService);
             MainWindow = _mainWindow;
 
             _tray = new TrayIconService
@@ -82,8 +89,10 @@ public partial class App : Application
                 string.Equals(argument, "--background", StringComparison.OrdinalIgnoreCase));
             var showRing = e.Args.Any(argument =>
                 string.Equals(argument, "--show-ring", StringComparison.OrdinalIgnoreCase));
+            var updateFailed = e.Args.Any(argument =>
+                string.Equals(argument, "--update-failed", StringComparison.OrdinalIgnoreCase));
             var mustShowSetup = !load.Configuration.Onboarding.IsCompleted;
-            if (!background || !load.Configuration.Preferences.General.StartMinimized || mustShowSetup)
+            if (!background || !load.Configuration.Preferences.General.StartMinimized || mustShowSetup || updateFailed)
             {
                 _mainWindow.Show();
             }
@@ -98,6 +107,18 @@ public partial class App : Application
             else if (load.Status is ConfigurationLoadStatus.RecoveredCorrupt or ConfigurationLoadStatus.RecoveredFromBackup)
             {
                 _tray.ShowSettingsRecoveryBalloon(load.Status == ConfigurationLoadStatus.RecoveredFromBackup);
+            }
+
+            if (updateFailed)
+            {
+                _mainWindow.ShowUpdateInstallFailure();
+            }
+
+            if (!updateFailed)
+            {
+                _ = Dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    new Action(() => _ = _mainWindow.CheckForUpdatesOnStartupAsync()));
             }
         }
         catch (Exception exception)
@@ -120,6 +141,8 @@ public partial class App : Application
         }
 
         _mainWindow.ExitRequested += (_, _) => _ = ExitAsync();
+        _mainWindow.UpdateInstallRequested += (_, args) =>
+            _ = Dispatcher.BeginInvoke(() => _ = InstallUpdateAndExitAsync(args.Package));
         _tray.ShowSettingsRequested += (_, _) => Dispatcher.BeginInvoke(_mainWindow.ShowFromTray);
         _tray.ShowRingRequested += (_, _) => Dispatcher.BeginInvoke(() => _ = _controller.ShowRingAsync());
         _tray.PauseToggled += (_, _) => Dispatcher.BeginInvoke(() =>
@@ -162,14 +185,21 @@ public partial class App : Application
     {
         var showRing = request.Arguments.Any(argument =>
             string.Equals(argument, "--show-ring", StringComparison.OrdinalIgnoreCase));
+        var updateFailed = request.Arguments.Any(argument =>
+            string.Equals(argument, "--update-failed", StringComparison.OrdinalIgnoreCase));
         if (_controller is null || _mainWindow is null)
         {
             _pendingShowRing |= showRing;
-            _pendingShowSettings |= !showRing;
+            _pendingUpdateFailure |= updateFailed;
+            _pendingShowSettings |= !showRing && !updateFailed;
             return;
         }
 
-        if (showRing)
+        if (updateFailed)
+        {
+            _mainWindow.ShowUpdateInstallFailure();
+        }
+        else if (showRing)
         {
             _ = _controller.ShowRingAsync();
         }
@@ -196,6 +226,11 @@ public partial class App : Application
             _pendingShowRing = false;
             _ = _controller.ShowRingAsync();
         }
+        if (_pendingUpdateFailure)
+        {
+            _pendingUpdateFailure = false;
+            _mainWindow.ShowUpdateInstallFailure();
+        }
     }
 
     private async Task ExitAsync()
@@ -207,6 +242,17 @@ public partial class App : Application
 
         try
         {
+            if (_updateLaunchTask is { } updateLaunchTask)
+            {
+                try
+                {
+                    await updateLaunchTask;
+                }
+                catch
+                {
+                    // The initiating flow reports launcher failures while the UI is still available.
+                }
+            }
             if (_mainWindow is not null)
             {
                 await _mainWindow.PrepareForShutdownAsync();
@@ -218,6 +264,8 @@ public partial class App : Application
                 await _controller.DisposeAsync();
                 _controller = null;
             }
+            _updateService?.Dispose();
+            _updateService = null;
             _store?.Dispose();
             _store = null;
             if (_singleInstance is not null)
@@ -233,6 +281,32 @@ public partial class App : Application
         finally
         {
             Shutdown();
+        }
+    }
+
+    private async Task InstallUpdateAndExitAsync(StagedUpdatePackage package)
+    {
+        if (Interlocked.Exchange(ref _updateInstallationStarted, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var processId = Environment.ProcessId;
+            _updateLaunchTask = Task.Run(() =>
+            {
+                _ = new UpdateInstallationLauncher().Launch(package, processId);
+            });
+            await _updateLaunchTask;
+            await ExitAsync();
+        }
+        catch (Exception exception)
+        {
+            _updateLaunchTask = null;
+            Interlocked.Exchange(ref _updateInstallationStarted, 0);
+            AppLog.Error("Could not start the update installer", exception);
+            _mainWindow?.ShowUpdateInstallFailure();
         }
     }
 

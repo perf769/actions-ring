@@ -86,6 +86,43 @@ public static class ConfigurationValidator
             }
         }
 
+        if (configuration.Preferences is null)
+        {
+            Add("$.preferences", "preferences.missing", "Preferences are required.");
+        }
+        else if (configuration.Preferences.Updates is null)
+        {
+            Add("$.preferences.updates", "updates.missing", "Update preferences are required.");
+        }
+        else
+        {
+            var updates = configuration.Preferences.Updates;
+            if (updates.SkippedVersion is not null
+                && !UpdateVersionText.IsValid(updates.SkippedVersion))
+            {
+                Add(
+                    "$.preferences.updates.skippedVersion",
+                    "updates.skippedVersion.invalid",
+                    "Skipped update version must be a semantic version.");
+            }
+
+            if (updates.LastCheckedAtUtc is { Offset: var offset } && offset != TimeSpan.Zero)
+            {
+                Add(
+                    "$.preferences.updates.lastCheckedAtUtc",
+                    "updates.lastCheckedAtUtc.notUtc",
+                    "Last update check time must use UTC.");
+            }
+
+            if (!updates.CheckAutomatically && updates.DownloadAutomatically)
+            {
+                Add(
+                    "$.preferences.updates.downloadAutomatically",
+                    "updates.autoDownload.requiresCheck",
+                    "Automatic downloads require automatic update checks.");
+            }
+        }
+
         if (configuration.UserProfiles is not { Count: > 0 })
         {
             Add("$.userProfiles", "userProfiles.missing", "At least one user profile is required.");

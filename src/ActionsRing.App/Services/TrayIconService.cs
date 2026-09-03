@@ -1,47 +1,34 @@
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using System.Windows.Threading;
+using ActionsRing.App.Windows;
 
 namespace ActionsRing.App.Services;
 
 public sealed class TrayIconService : IDisposable
 {
     private readonly NotifyIcon _notifyIcon;
-    private readonly ToolStripMenuItem _pauseItem;
-    private readonly ToolStripMenuItem _startupItem;
+    private readonly TrayContextMenu _menu;
     private bool _disposed;
 
     public TrayIconService()
     {
-        _pauseItem = new ToolStripMenuItem("Приостановить кольцо");
-        _startupItem = new ToolStripMenuItem("Запускать вместе с Windows") { CheckOnClick = false };
-        var showItem = new ToolStripMenuItem("Открыть настройки");
-        var previewItem = new ToolStripMenuItem("Показать кольцо");
-        var exitItem = new ToolStripMenuItem("Выйти");
-
-        showItem.Click += (_, _) => ShowSettingsRequested?.Invoke(this, EventArgs.Empty);
-        previewItem.Click += (_, _) => ShowRingRequested?.Invoke(this, EventArgs.Empty);
-        _pauseItem.Click += (_, _) => PauseToggled?.Invoke(this, EventArgs.Empty);
-        _startupItem.Click += (_, _) => StartupToggled?.Invoke(this, EventArgs.Empty);
-        exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
-
-        var menu = new ContextMenuStrip();
-        menu.Items.Add(showItem);
-        menu.Items.Add(previewItem);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(_pauseItem);
-        menu.Items.Add(_startupItem);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(exitItem);
+        _menu = new TrayContextMenu();
+        _menu.ShowSettingsRequested += (_, _) => ShowSettingsRequested?.Invoke(this, EventArgs.Empty);
+        _menu.ShowRingRequested += (_, _) => ShowRingRequested?.Invoke(this, EventArgs.Empty);
+        _menu.PauseToggled += (_, _) => PauseToggled?.Invoke(this, EventArgs.Empty);
+        _menu.StartupToggled += (_, _) => StartupToggled?.Invoke(this, EventArgs.Empty);
+        _menu.ExitRequested += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
         _notifyIcon = new NotifyIcon
         {
             Text = "Actions Ring",
             Icon = CreateIcon(),
-            ContextMenuStrip = menu,
             Visible = true,
         };
         _notifyIcon.DoubleClick += (_, _) => ShowSettingsRequested?.Invoke(this, EventArgs.Empty);
+        _notifyIcon.MouseUp += OnNotifyIconMouseUp;
     }
 
     public event EventHandler? ShowSettingsRequested;
@@ -52,19 +39,18 @@ public sealed class TrayIconService : IDisposable
 
     public bool IsPaused
     {
-        get => _pauseItem.Checked;
+        get => _menu.IsPaused;
         set
         {
-            _pauseItem.Checked = value;
-            _pauseItem.Text = value ? "Возобновить кольцо" : "Приостановить кольцо";
+            _menu.IsPaused = value;
             _notifyIcon.Text = value ? "Actions Ring — приостановлено" : "Actions Ring";
         }
     }
 
     public bool IsStartupEnabled
     {
-        get => _startupItem.Checked;
-        set => _startupItem.Checked = value;
+        get => _menu.IsStartupEnabled;
+        set => _menu.IsStartupEnabled = value;
     }
 
     public void ShowWelcomeBalloon()
@@ -99,11 +85,23 @@ public sealed class TrayIconService : IDisposable
         {
             return;
         }
+        _notifyIcon.MouseUp -= OnNotifyIconMouseUp;
+        _menu.CloseMenu();
         _notifyIcon.Visible = false;
-        _notifyIcon.ContextMenuStrip?.Dispose();
         _notifyIcon.Icon?.Dispose();
         _notifyIcon.Dispose();
         _disposed = true;
+    }
+
+    private void OnNotifyIconMouseUp(object? sender, MouseEventArgs args)
+    {
+        if (args.Button != MouseButtons.Right || _disposed)
+        {
+            return;
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher ?? _menu.Dispatcher;
+        _ = dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(_menu.ShowAtCursor));
     }
 
     private static Icon CreateIcon()

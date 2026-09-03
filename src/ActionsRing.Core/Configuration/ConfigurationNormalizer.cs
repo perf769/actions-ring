@@ -144,6 +144,7 @@ public static class ConfigurationNormalizer
             document.Preferences ??= new UserPreferences();
             document.Preferences.General ??= new GeneralPreferences();
             document.Preferences.Appearance ??= new AppearancePreferences();
+            document.Preferences.Updates ??= new UpdatePreferences();
 
             var appearance = document.Preferences.Appearance;
             if (!Enum.IsDefined(appearance.Theme))
@@ -187,6 +188,35 @@ public static class ConfigurationNormalizer
                 0,
                 5000,
                 "$.preferences.appearance.tooltipDelayMilliseconds");
+
+            var updates = document.Preferences.Updates;
+            updates.SkippedVersion = CleanOptionalText(
+                updates.SkippedVersion,
+                80,
+                "$.preferences.updates.skippedVersion");
+            if (updates.SkippedVersion is not null
+                && !UpdateVersionText.IsValid(updates.SkippedVersion))
+            {
+                updates.SkippedVersion = null;
+                Warn(
+                    "$.preferences.updates.skippedVersion",
+                    "updates.skippedVersion.removed",
+                    "Invalid skipped update version was removed.");
+            }
+
+            if (updates.LastCheckedAtUtc is { } checkedAt)
+            {
+                updates.LastCheckedAtUtc = checkedAt.ToUniversalTime();
+            }
+
+            if (!updates.CheckAutomatically && updates.DownloadAutomatically)
+            {
+                updates.DownloadAutomatically = false;
+                Warn(
+                    "$.preferences.updates.downloadAutomatically",
+                    "updates.autoDownload.disabled",
+                    "Automatic update downloads were disabled because automatic checks are off.");
+            }
         }
 
         void NormalizeOnboarding(ActionsRingConfiguration document)

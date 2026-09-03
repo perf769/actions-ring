@@ -51,6 +51,7 @@ public static class ConfigurationMigrator
             {
                 1 => MigrateVersion1To2(root),
                 2 => MigrateVersion2To3(root),
+                3 => MigrateVersion3To4(root),
                 _ => throw new UnsupportedConfigurationVersionException(version),
             };
         }
@@ -69,6 +70,13 @@ public static class ConfigurationMigrator
             // The original public preview did not write a version marker. Infer newer
             // unversioned documents by shape so removing only the marker from an export
             // cannot discard its user-profile graph during the sequential migrations.
+            if (root["userProfiles"] is JsonArray
+                && root["preferences"] is JsonObject currentPreferences
+                && currentPreferences["updates"] is JsonObject)
+            {
+                return 4;
+            }
+
             if (root["userProfiles"] is JsonArray)
             {
                 return 3;
@@ -158,6 +166,30 @@ public static class ConfigurationMigrator
         root.Remove("applicationProfiles");
         root["schemaVersion"] = 3;
         return 3;
+    }
+
+    private static int MigrateVersion3To4(JsonObject root)
+    {
+        var preferences = root["preferences"] as JsonObject ?? new JsonObject();
+        var general = preferences["general"] as JsonObject ?? new JsonObject();
+        var updates = preferences["updates"] as JsonObject ?? new JsonObject();
+
+        if (updates["checkAutomatically"] is null)
+        {
+            updates["checkAutomatically"] = general["checkForUpdates"]?.DeepClone()
+                                            ?? JsonValue.Create(true);
+        }
+        if (updates["downloadAutomatically"] is null)
+        {
+            updates["downloadAutomatically"] = false;
+        }
+
+        general.Remove("checkForUpdates");
+        preferences["general"] = general;
+        preferences["updates"] = updates;
+        root["preferences"] = preferences;
+        root["schemaVersion"] = 4;
+        return 4;
     }
 
     private static void PromoteLegacyPalette(JsonObject profile)

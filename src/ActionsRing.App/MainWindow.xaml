@@ -448,17 +448,72 @@
                 <!-- About page -->
                 <Grid x:Name="AboutPage" Visibility="Collapsed" Margin="36,30">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                    <TextBlock Text="О программе" Style="{StaticResource TitleText}" />
-                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Width="560">
-                        <Image Source="Assets/ActionsRingLogo.png" Width="104" Height="104" Stretch="Uniform" />
-                        <TextBlock Text="Actions Ring" FontFamily="{DynamicResource DisplayFont}" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,18,0,0" />
-                        <TextBlock x:Name="VersionText" Text="Версия 2.0.0" Foreground="{DynamicResource TextSecondaryBrush}" HorizontalAlignment="Center" Margin="0,5,0,0" />
-                        <TextBlock Text="Быстрое контекстное кольцо действий для Windows. Работает локально и не отправляет ваши профили или ввод в сеть." TextAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,18,0,0" />
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,22,0,0">
-                            <Button Style="{StaticResource SecondaryButton}" Content="Открыть папку настроек" Click="OnOpenSettingsFolder" />
-                            <Button Style="{StaticResource SecondaryButton}" Content="Открыть журнал" Click="OnOpenLog" Margin="9,0,0,0" />
-                        </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="О программе" Style="{StaticResource TitleText}" />
+                        <TextBlock Text="Версия, обновления и данные приложения." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,6,0,0" />
                     </StackPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,24,0,0">
+                        <StackPanel Margin="0,0,10,30" MaxWidth="820">
+                            <Border Style="{StaticResource CardBorder}" Padding="24">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Border Width="76" Height="76" Background="{DynamicResource AccentSoftBrush}" CornerRadius="22">
+                                        <Image Source="Assets/ActionsRingLogo.png" Width="56" Height="56" Stretch="Uniform" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="18,0,18,0">
+                                        <TextBlock Text="Actions Ring" FontFamily="{DynamicResource DisplayFont}" FontSize="25" FontWeight="SemiBold" />
+                                        <TextBlock Text="Быстрое контекстное кольцо действий для Windows" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,5,0,0" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                        <TextBlock x:Name="VersionText" Text="Версия 2.1.0" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        <Border x:Name="VersionStatusBadge" Background="{DynamicResource SurfaceRaisedBrush}" CornerRadius="9" Padding="10,5" Margin="0,8,0,0" HorizontalAlignment="Right">
+                                            <TextBlock x:Name="VersionStatusText" Text="Готово к проверке" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Padding="22,8" Margin="0,16,0,0">
+                                <StackPanel>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel Margin="0,0,20,0">
+                                                <TextBlock Text="Обновления" Style="{StaticResource SectionTitleText}" />
+                                                <TextBlock x:Name="UpdateStatusText" Text="Проверка официальных обновлений Actions Ring через GitHub." Style="{StaticResource CaptionText}" Margin="0,5,0,0" />
+                                                <TextBlock x:Name="LastUpdateCheckText" Text="Обновления ещё не проверялись" Style="{StaticResource CaptionText}" Foreground="{DynamicResource TextMutedBrush}" Margin="0,4,0,0" />
+                                            </StackPanel>
+                                            <Button x:Name="CheckUpdatesButton" Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Проверить обновления" Click="OnCheckUpdates" MinWidth="176" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Проверять автоматически" FontWeight="SemiBold" /><TextBlock Text="Искать новую версию при запуске, но не чаще одного раза в сутки." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="AutoCheckUpdatesToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnUpdateSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource SettingsRow}" BorderThickness="0">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel><TextBlock Text="Автообновление с подтверждением" FontWeight="SemiBold" /><TextBlock Text="Пакет загрузится и пройдёт проверку в фоне. Установка начнётся только после вашего подтверждения." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <CheckBox x:Name="AutoDownloadUpdatesToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}" Click="OnUpdateSettingsToggle" />
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource CardBorder}" Margin="0,16,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,20,0">
+                                        <TextBlock Text="Локальные данные" FontWeight="SemiBold" />
+                                        <TextBlock Text="Профили и ввод остаются на этом компьютере. Для проверки обновлений используется GitHub." Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Папка настроек" Click="OnOpenSettingsFolder" VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="Журнал" Click="OnOpenLog" Margin="9,0,0,0" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
 
                 <!-- In-app status toast -->

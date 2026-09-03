@@ -12,9 +12,10 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <ApplicationIcon>Assets\ActionsRing.ico</ApplicationIcon>
-    <Version>2.0.0</Version>
-    <AssemblyVersion>2.0.0.0</AssemblyVersion>
-    <FileVersion>2.0.0.0</FileVersion>
+    <Version>2.1.0</Version>
+    <AssemblyVersion>2.1.0.0</AssemblyVersion>
+    <FileVersion>2.1.0.0</FileVersion>
+    <AssemblyTitle>Actions Ring</AssemblyTitle>
     <Product>Actions Ring</Product>
     <Company>Actions Ring</Company>
     <Description>Fast, app-aware radial actions menu for Windows.</Description>

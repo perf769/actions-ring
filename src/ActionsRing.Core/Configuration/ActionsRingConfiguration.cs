@@ -65,7 +65,7 @@ public sealed class ActionsRingConfiguration
 public static class ConfigurationSchema
 {
     public const int OldestSupportedVersion = 1;
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 }
 
 public sealed class UserPreferences
@@ -73,6 +73,22 @@ public sealed class UserPreferences
     public GeneralPreferences General { get; set; } = new();
 
     public AppearancePreferences Appearance { get; set; } = new();
+
+    public UpdatePreferences Updates { get; set; } = new();
+}
+
+/// <summary>Controls background release checks and downloads. Installation always requires confirmation.</summary>
+public sealed class UpdatePreferences
+{
+    public bool CheckAutomatically { get; set; } = true;
+
+    public bool DownloadAutomatically { get; set; }
+
+    /// <summary>A normalized semantic version that should not prompt during automatic checks.</summary>
+    public string? SkippedVersion { get; set; }
+
+    /// <summary>The completion time of the last successful or failed release check.</summary>
+    public DateTimeOffset? LastCheckedAtUtc { get; set; }
 }
 
 public sealed class GeneralPreferences
@@ -141,4 +157,49 @@ public sealed class OnboardingState
     public string? LastSeenAppVersion { get; set; }
 
     public DateTimeOffset? CompletedAtUtc { get; set; }
+}
+
+internal static class UpdateVersionText
+{
+    public static bool IsValid(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 80)
+        {
+            return false;
+        }
+
+        var buildSplit = value.Split('+');
+        if (buildSplit.Length > 2
+            || (buildSplit.Length == 2 && !AreIdentifiersValid(buildSplit[1], numericLeadingZeroAllowed: true)))
+        {
+            return false;
+        }
+
+        var versionAndPrerelease = buildSplit[0].Split('-', 2);
+        if (versionAndPrerelease.Length == 2
+            && !AreIdentifiersValid(versionAndPrerelease[1], numericLeadingZeroAllowed: false))
+        {
+            return false;
+        }
+
+        var core = versionAndPrerelease[0].Split('.');
+        return core.Length == 3 && core.All(IsCoreNumber);
+    }
+
+    private static bool AreIdentifiersValid(string value, bool numericLeadingZeroAllowed)
+    {
+        var identifiers = value.Split('.');
+        return identifiers.Length > 0 && identifiers.All(identifier =>
+            identifier.Length > 0
+            && identifier.All(character => char.IsAsciiLetterOrDigit(character) || character == '-')
+            && (numericLeadingZeroAllowed
+                || !identifier.All(char.IsAsciiDigit)
+                || identifier.Length == 1
+                || identifier[0] != '0'));
+    }
+
+    private static bool IsCoreNumber(string value) =>
+        value.Length > 0
+        && value.All(char.IsAsciiDigit)
+        && (value.Length == 1 || value[0] != '0');
 }

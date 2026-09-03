@@ -21,10 +21,18 @@ using CoreMouseButton = ActionsRing.Core.Domain.MouseButton;
 
 namespace ActionsRing.App;
 
+public sealed class UpdateInstallRequestedEventArgs(StagedUpdatePackage package) : EventArgs
+{
+    public StagedUpdatePackage Package { get; } = package ?? throw new ArgumentNullException(nameof(package));
+}
+
 public partial class MainWindow : Window
 {
     private readonly ApplicationController _controller;
+    private readonly IUpdateService _updateService;
     private readonly DispatcherTimer _saveAppearanceTimer;
+    private readonly SemaphoreSlim _updateGate = new(1, 1);
+    private readonly CancellationTokenSource _updateLifetime = new();
     private readonly InstalledApplicationDiscoveryService _applicationDiscovery = new();
     private readonly ApplicationVisualService _visuals = new();
     private readonly Dictionary<string, bool> _actionGroupExpansion = new(StringComparer.Ordinal);
@@ -37,11 +45,13 @@ public partial class MainWindow : Window
     private bool _appearanceDirty;
     private bool _configurationMutationInProgress;
     private ConfigurationMutationTransaction? _pendingAppearanceTransaction;
+    private UpdateAvailableWindow? _activeUpdateDialog;
 
-    public MainWindow(ApplicationController controller, ThemeService theme)
+    public MainWindow(ApplicationController controller, ThemeService theme, IUpdateService updateService)
     {
         _controller = controller ?? throw new ArgumentNullException(nameof(controller));
         ArgumentNullException.ThrowIfNull(theme);
+        _updateService = updateService ?? throw new ArgumentNullException(nameof(updateService));
         InitializeComponent();
         _selectedProfileId = _controller.Configuration.GetActiveUserProfile().GlobalProfile.Id;
 
@@ -84,6 +94,8 @@ public partial class MainWindow : Window
 
     public event EventHandler? ExitRequested;
 
+    public event EventHandler<UpdateInstallRequestedEventArgs>? UpdateInstallRequested;
+
     public void ShowFromTray()
     {
         RefreshRuntimeStatus();
@@ -104,18 +116,75 @@ public partial class MainWindow : Window
         ExitRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    public void ShowUpdateInstallFailure()
+    {
+        ShowFromTray();
+        AboutNav.IsChecked = true;
+        NavigateTo("About");
+        UpdateStatusText.Text = "Не удалось установить обновление. Текущая версия продолжает работать, а загруженный пакет можно запустить ещё раз.";
+        SetVersionStatus("Ошибка установки", "DangerBrush", "SurfaceRaisedBrush");
+        ShowStatus("Не удалось установить обновление", isError: true);
+    }
+
     public async Task PrepareForShutdownAsync()
     {
         _allowClose = true;
+        _updateLifetime.Cancel();
+        _activeUpdateDialog?.Close();
         _saveAppearanceTimer.Stop();
         await FlushPendingAppearanceSaveAsync();
+        await _updateGate.WaitAsync();
+        _updateGate.Release();
         Hide();
+    }
+
+    public async Task CheckForUpdatesOnStartupAsync()
+    {
+        bool entered;
+        try
+        {
+            entered = await _updateGate.WaitAsync(0, _updateLifetime.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (!entered)
+        {
+            return;
+        }
+        try
+        {
+            await _updateService.CleanupObsoleteStagesAsync(_updateLifetime.Token);
+        }
+        catch (OperationCanceledException) when (_updateLifetime.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Obsolete update cleanup failed", exception);
+        }
+        finally
+        {
+            _updateGate.Release();
+        }
+
+        var preferences = _controller.Configuration.Preferences.Updates;
+        if (!_controller.Configuration.Onboarding.IsCompleted
+            || !preferences.CheckAutomatically
+            || !IsAutomaticUpdateCheckDue(preferences.LastCheckedAtUtc, DateTimeOffset.UtcNow))
+        {
+            return;
+        }
+
+        await ExecuteUpdateCheckAsync(manual: false);
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RefreshAll();
-        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.0"}";
+        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.1.0"}";
         if (!_controller.Configuration.Onboarding.IsCompleted)
         {
             ShowOnboarding(1);
@@ -266,6 +335,7 @@ public partial class MainWindow : Window
     {
         var general = _controller.Configuration.Preferences.General;
         var appearance = _controller.Configuration.Preferences.Appearance;
+        var updates = _controller.Configuration.Preferences.Updates;
         StartupToggle.IsChecked = general.RunAtStartup;
         StartMinimizedToggle.IsChecked = general.StartMinimized;
         CloseToTrayToggle.IsChecked = general.CloseToTray;
@@ -283,6 +353,12 @@ public partial class MainWindow : Window
         UpdateCenterSizeLabel(appearance.CenterCloseDiameter);
         UpdateTooltipDelayLabel(appearance.TooltipDelayMilliseconds);
         SelectComboByTag(ThemeCombo, appearance.Theme.ToString());
+        AutoCheckUpdatesToggle.IsChecked = updates.CheckAutomatically;
+        AutoDownloadUpdatesToggle.IsChecked = updates.DownloadAutomatically;
+        AutoDownloadUpdatesToggle.IsEnabled = updates.CheckAutomatically;
+        LastUpdateCheckText.Text = updates.LastCheckedAtUtc is { } lastChecked
+            ? $"Последняя проверка: {lastChecked.ToLocalTime():g}"
+            : "Обновления ещё не проверялись";
     }
 
     private void RefreshUserProfileSelector()
@@ -1389,6 +1465,215 @@ public partial class MainWindow : Window
                 appearance.ReduceMotion = reduceMotion;
             },
             updateAutostart: true);
+    }
+
+    private async void OnUpdateSettingsToggle(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing)
+        {
+            return;
+        }
+
+        var checkAutomatically = AutoCheckUpdatesToggle.IsChecked == true;
+        var downloadAutomatically = AutoDownloadUpdatesToggle.IsChecked == true;
+        if (ReferenceEquals(sender, AutoDownloadUpdatesToggle) && downloadAutomatically)
+        {
+            checkAutomatically = true;
+        }
+        if (!checkAutomatically)
+        {
+            downloadAutomatically = false;
+        }
+
+        await MutateAndSaveAsync(
+            configuration =>
+            {
+                configuration.Preferences.Updates.CheckAutomatically = checkAutomatically;
+                configuration.Preferences.Updates.DownloadAutomatically = downloadAutomatically;
+            },
+            updateAutostart: false);
+    }
+
+    private async void OnCheckUpdates(object sender, RoutedEventArgs e) =>
+        await ExecuteUpdateCheckAsync(manual: true);
+
+    private async Task ExecuteUpdateCheckAsync(bool manual)
+    {
+        bool entered;
+        try
+        {
+            entered = await _updateGate.WaitAsync(0, _updateLifetime.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        if (!entered)
+        {
+            return;
+        }
+
+        CheckUpdatesButton.IsEnabled = false;
+        CheckUpdatesButton.Content = "Проверяем…";
+        UpdateStatusText.Text = "Подключаемся к официальному репозиторию…";
+        SetVersionStatus("Проверка…", "TextSecondaryBrush", "SurfaceRaisedBrush");
+        try
+        {
+            UpdateCheckResult check;
+            StagedUpdatePackage? stagedPackage = null;
+            if (manual)
+            {
+                check = await _updateService.CheckForUpdatesAsync(
+                    _controller.Configuration.Preferences.Updates.SkippedVersion,
+                    includeSkipped: true,
+                    cancellationToken: _updateLifetime.Token);
+            }
+            else
+            {
+                var source = _controller.Configuration.Preferences.Updates;
+                var snapshot = new UpdatePreferences
+                {
+                    CheckAutomatically = source.CheckAutomatically,
+                    DownloadAutomatically = source.DownloadAutomatically,
+                    SkippedVersion = source.SkippedVersion,
+                    LastCheckedAtUtc = source.LastCheckedAtUtc,
+                };
+                var automatic = await _updateService.RunAutomaticCheckAsync(
+                    snapshot,
+                    progress: null,
+                    cancellationToken: _updateLifetime.Token);
+                check = automatic.Check;
+                stagedPackage = automatic.Stage?.Package;
+            }
+
+            if (check.Status != UpdateCheckStatus.AutomaticCheckDisabled)
+            {
+                await MutateAndSaveAsync(
+                    configuration =>
+                    {
+                        var updates = configuration.Preferences.Updates;
+                        updates.LastCheckedAtUtc = check.CheckedAtUtc;
+                        if (SemanticVersion.TryParse(updates.SkippedVersion, out var skipped)
+                            && skipped.CompareTo(_updateService.CurrentVersion) <= 0)
+                        {
+                            updates.SkippedVersion = null;
+                        }
+                    },
+                    updateAutostart: false);
+            }
+
+            await PresentUpdateCheckResultAsync(check, stagedPackage, manual);
+        }
+        catch (OperationCanceledException) when (_updateLifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            AppLog.Error("Update check UI failed", exception);
+            UpdateStatusText.Text = "Не удалось проверить обновления. Попробуйте ещё раз.";
+            SetVersionStatus("Ошибка проверки", "DangerBrush", "SurfaceRaisedBrush");
+        }
+        finally
+        {
+            CheckUpdatesButton.IsEnabled = true;
+            CheckUpdatesButton.Content = "Проверить обновления";
+            _updateGate.Release();
+        }
+    }
+
+    private async Task PresentUpdateCheckResultAsync(
+        UpdateCheckResult check,
+        StagedUpdatePackage? stagedPackage,
+        bool manual)
+    {
+        UpdateStatusText.Text = check.UserMessage;
+        switch (check.Status)
+        {
+            case UpdateCheckStatus.UpToDate:
+                SetVersionStatus("Актуальная версия", "SuccessBrush", "SurfaceRaisedBrush");
+                if (AboutPage.Visibility == Visibility.Visible)
+                {
+                    ShowStatus("Установлена актуальная версия");
+                }
+                return;
+            case UpdateCheckStatus.Skipped:
+                SetVersionStatus("Версия пропущена", "TextSecondaryBrush", "SurfaceRaisedBrush");
+                return;
+            case UpdateCheckStatus.Failed:
+                SetVersionStatus("Ошибка проверки", "DangerBrush", "SurfaceRaisedBrush");
+                if (manual)
+                {
+                    ShowStatus(check.UserMessage, isError: true);
+                }
+                return;
+            case UpdateCheckStatus.AutomaticCheckDisabled:
+                SetVersionStatus("Автопроверка выключена", "TextSecondaryBrush", "SurfaceRaisedBrush");
+                return;
+            case UpdateCheckStatus.UpdateAvailable when check.LatestRelease is not null:
+                SetVersionStatus($"Доступна {check.LatestRelease.Version}", "AccentBrush", "AccentSoftBrush");
+                break;
+            default:
+                return;
+        }
+
+        var dialog = new UpdateAvailableWindow(_updateService, check.LatestRelease, stagedPackage);
+        _activeUpdateDialog = dialog;
+        if (IsVisible && WindowState != WindowState.Minimized)
+        {
+            dialog.Owner = this;
+        }
+        else
+        {
+            dialog.ShowInTaskbar = true;
+            dialog.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
+
+        try
+        {
+            dialog.ShowDialog();
+        }
+        finally
+        {
+            _activeUpdateDialog = null;
+        }
+
+        if (dialog.Decision == UpdateDecision.Skip)
+        {
+            if (!await MutateAndSaveAsync(
+                configuration => configuration.Preferences.Updates.SkippedVersion =
+                    check.LatestRelease.Version.ToString(),
+                updateAutostart: false))
+            {
+                UpdateStatusText.Text = $"Версия {check.LatestRelease.Version} по-прежнему доступна.";
+                SetVersionStatus($"Доступна {check.LatestRelease.Version}", "AccentBrush", "AccentSoftBrush");
+                return;
+            }
+            UpdateStatusText.Text = $"Версия {check.LatestRelease.Version} пропущена.";
+            SetVersionStatus("Версия пропущена", "TextSecondaryBrush", "SurfaceRaisedBrush");
+            return;
+        }
+
+        if (dialog.Decision == UpdateDecision.Install && dialog.Package is { } package)
+        {
+            UpdateStatusText.Text = "Обновление готово. Actions Ring перезапустится после установки.";
+            UpdateInstallRequested?.Invoke(this, new UpdateInstallRequestedEventArgs(package));
+        }
+    }
+
+    private void SetVersionStatus(string text, string foregroundResource, string backgroundResource)
+    {
+        VersionStatusText.Text = text;
+        VersionStatusText.SetResourceReference(TextBlock.ForegroundProperty, foregroundResource);
+        VersionStatusBadge.SetResourceReference(Border.BackgroundProperty, backgroundResource);
+    }
+
+    internal static bool IsAutomaticUpdateCheckDue(DateTimeOffset? lastCheckedAtUtc, DateTimeOffset nowUtc)
+    {
+        if (lastCheckedAtUtc is null || lastCheckedAtUtc > nowUtc.AddMinutes(5))
+        {
+            return true;
+        }
+        return nowUtc - lastCheckedAtUtc.Value >= TimeSpan.FromHours(24);
     }
 
     private async void OnThemeChanged(object sender, SelectionChangedEventArgs e)

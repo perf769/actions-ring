@@ -184,7 +184,7 @@ public sealed class ApplicationVisualService
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromSeconds(3));
             using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(origin, "/favicon.ico"));
-            request.Headers.UserAgent.ParseAdd("ActionsRing/2.0");
+            request.Headers.UserAgent.ParseAdd("ActionsRing/2.1");
             using var response = await HttpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
