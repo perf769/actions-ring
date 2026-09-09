@@ -4,8 +4,8 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:controls="clr-namespace:ActionsRing.App.Controls"
         Title="Actions Ring"
-        Width="1180"
-        Height="740"
+        Width="1280"
+        Height="800"
         MinWidth="820"
         MinHeight="440"
         WindowStartupLocation="CenterScreen"
@@ -164,7 +164,7 @@
                                           SelectionChanged="OnUserProfileSelectionChanged"
                                           DisplayMemberPath="Name" SelectedValuePath="Id" />
                             </StackPanel>
-                            <ScrollViewer x:Name="ProfileTabsScroller" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="24,0">
+                            <ScrollViewer x:Name="ProfileTabsScroller" Grid.Column="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="24,0" PreviewMouseWheel="OnProfileTabsMouseWheel">
                                 <StackPanel x:Name="ProfileTabsPanel" Orientation="Horizontal" VerticalAlignment="Center" />
                             </ScrollViewer>
                             <Button x:Name="AddProfileButton" Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="+ Приложение" Click="OnAddProfile" VerticalAlignment="Center" ToolTip="Добавить приложение" />
@@ -467,7 +467,7 @@
                                         <TextBlock Text="Быстрое контекстное кольцо действий для Windows" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,5,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
-                                        <TextBlock x:Name="VersionText" Text="Версия 2.2.1" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        <TextBlock x:Name="VersionText" Text="Версия 2.3.0" FontWeight="SemiBold" HorizontalAlignment="Right" />
                                         <Border x:Name="VersionStatusBadge" Background="{DynamicResource SurfaceRaisedBrush}" CornerRadius="9" Padding="10,5" Margin="0,8,0,0" HorizontalAlignment="Right">
                                             <TextBlock x:Name="VersionStatusText" Text="Готово к проверке" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" />
                                         </Border>

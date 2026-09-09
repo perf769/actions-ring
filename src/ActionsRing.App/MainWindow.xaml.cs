@@ -185,7 +185,7 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RefreshAll();
-        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.2.1"}";
+        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.3.0"}";
         if (!_controller.Configuration.Onboarding.IsCompleted)
         {
             ShowOnboarding(1);
@@ -408,6 +408,15 @@ public partial class MainWindow : Window
                 CreateApplicationIcon(profile.Name, isGlobal: false, profile),
                 profile.Id == _selectedProfileId);
         }
+    }
+
+    private void OnProfileTabsMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (ProfileTabsScroller.ScrollableWidth <= 0 || e.Delta == 0) return;
+        ProfileTabsScroller.ScrollToHorizontalOffset(Math.Clamp(
+            ProfileTabsScroller.HorizontalOffset - e.Delta / 120d * 108,
+            0, ProfileTabsScroller.ScrollableWidth));
+        e.Handled = true;
     }
 
     private void AddProfileTab(string id, string title, FrameworkElement icon, bool selected)
@@ -982,7 +991,7 @@ public partial class MainWindow : Window
             var profileId = _selectedProfileId;
             var targetId = _selectedSlot.Id;
             var editedSlot = Clone(_selectedSlot);
-            var editor = new FolderEditorWindow(editedSlot, _controller.CaptureShortcutChordAsync) { Owner = this };
+            var editor = new FolderEditorWindow(editedSlot, _controller.CaptureShortcutChordAsync, GetSelectedActionCatalogContext()) { Owner = this };
             if (editor.ShowDialog() == true)
             {
                 if (await MutateAndSaveAsync(

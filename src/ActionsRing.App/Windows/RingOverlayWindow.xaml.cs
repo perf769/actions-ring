@@ -171,11 +171,18 @@ public partial class RingOverlayWindow : Window
         return nint.Zero;
     }
 
-    public async Task CommitHoveredAsync()
+    public async Task CommitHoveredAsync(bool isHoldRelease = false)
     {
+        if (!IsRingVisible)
+        {
+            return;
+        }
         var hovered = Ring.HoveredSlot;
         var targetWindow = _actionTargetWindow;
-        if (hovered?.Submenu is not null && hovered.Action is not { Kind: not ActionKind.None })
+        var isPreview = _isPreview;
+        // A toggle press navigates into a folder; releasing a held trigger always
+        // ends the interaction, including when the pointer rests on a folder.
+        if (!isHoldRelease && hovered?.Submenu is not null && hovered.Action is not { Kind: not ActionKind.None })
         {
             Ring.OpenSubmenu(hovered, animate: true);
             return;
@@ -185,7 +192,7 @@ public partial class RingOverlayWindow : Window
             var wasClosed = await HideAnimatedAsync();
             if (wasClosed && (hovered.Action.Kind != ActionKind.AdjustParameter || hovered.Submenu is not null))
             {
-                ActionRequested?.Invoke(this, new OverlayActionEventArgs(hovered, targetWindow, _isPreview));
+                ActionRequested?.Invoke(this, new OverlayActionEventArgs(hovered, targetWindow, isPreview));
             }
             return;
         }

@@ -45,6 +45,7 @@ public partial class RingMenuControl : UserControl
 
     private readonly List<NodeVisual> _rootNodes = [];
     private readonly List<NodeVisual> _submenuNodes = [];
+    private readonly List<ShapePath> _labelConnectors = [];
     private readonly DispatcherTimer _submenuTimer;
     private readonly DispatcherTimer _tooltipTimer;
     private readonly DispatcherTimer _adjustmentFeedbackTimer;
@@ -1313,6 +1314,56 @@ public partial class RingMenuControl : UserControl
                 node.Bubble.Effect = visible ? null : TryFindResource("SoftShadow") as Effect;
             }
         }
+        ArrangeConfigurationLabels();
+    }
+
+    private void ArrangeConfigurationLabels()
+    {
+        foreach (var connector in _labelConnectors) TooltipCanvas.Children.Remove(connector);
+        _labelConnectors.Clear();
+        if (InteractionMode != RingInteractionMode.Configure || !ShowConfigurationLabels) return;
+        var nodes = _rootNodes.Concat(_submenuNodes).ToArray();
+        var labels = new List<ConfigurationLabel>();
+        var bubbles = nodes.Select(node => new Rect(
+            node.Center.X - node.NodeSize / 2, node.Center.Y - node.NodeSize / 2, node.NodeSize, node.NodeSize)).ToList();
+        var center = EffectiveCenter();
+        bubbles.Add(new Rect(center.X - CenterDiameter / 2, center.Y - CenterDiameter / 2, CenterDiameter, CenterDiameter));
+        for (var index = 0; index < nodes.Length; index++)
+        {
+            var node = nodes[index];
+            if (node.IsDimmed || ReferenceEquals(node.Slot, OpenFolder)) continue;
+            PositionLabel(node, node.Center);
+            labels.Add(new ConfigurationLabel(index, node.Center, node.NodeSize, node.Label.DesiredSize,
+                new Rect(new Point(Canvas.GetLeft(node.Label), Canvas.GetTop(node.Label)), node.Label.DesiredSize),
+                ReferenceEquals(node.Slot, HoveredSlot) ? 2 : ReferenceEquals(node.Slot, SelectedSlot) ? 1 : 0));
+        }
+        var placements = ConfigurationLabelLayout.Arrange(labels, bubbles, EffectiveTooltipBounds(), Math.Max(14, 8 * RingScale));
+        foreach (var label in labels)
+        {
+            var node = nodes[label.Index];
+            if (!placements.TryGetValue(label.Index, out var placement))
+            {
+                SetLabelVisible(node, false, animate: false);
+                continue;
+            }
+            Canvas.SetLeft(node.Label, placement.Left);
+            Canvas.SetTop(node.Label, placement.Top);
+            SetLabelVisible(node, true, animate: false);
+            if ((placement.TopLeft - label.Preferred.TopLeft).Length < 12) continue;
+            var end = new Point(Math.Clamp(node.Center.X, placement.Left, placement.Right), Math.Clamp(node.Center.Y, placement.Top, placement.Bottom));
+            var direction = end - node.Center;
+            if (direction.Length < 1) continue;
+            direction.Normalize();
+            var connector = new ShapePath
+            {
+                Data = new LineGeometry(node.Center + direction * (node.NodeSize / 2 + 5), end),
+                Stroke = ResourceBrush("TextSecondaryBrush", Brushes.Gray), StrokeThickness = 1, Opacity = 0.35,
+                IsHitTestVisible = false,
+            };
+            Panel.SetZIndex(connector, -1);
+            TooltipCanvas.Children.Add(connector);
+            _labelConnectors.Add(connector);
+        }
     }
 
     private void CloseSubmenus(bool animate)
@@ -1581,6 +1632,8 @@ public partial class RingMenuControl : UserControl
                 SetLabelVisible(node, progress >= 0.98 && ShowConfigurationLabels, animate: false);
             }
         }
+        if (progress >= 0.98) ArrangeConfigurationLabels();
+        else foreach (var connector in _labelConnectors) connector.Opacity = 0;
     }
 
     private static Brush InterpolateBrush(Brush from, Brush to, double progress)
@@ -1638,6 +1691,7 @@ public partial class RingMenuControl : UserControl
                 OpenSubmenu(folder, animate: false);
             }
         }
+        ArrangeConfigurationLabels();
     }
 
     private void PositionNode(NodeVisual node, Point point, Point center)

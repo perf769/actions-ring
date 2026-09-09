@@ -406,7 +406,7 @@ public sealed class ApplicationController : IAsyncDisposable
             {
                 if (_overlay.IsRingVisible)
                 {
-                    await _overlay.CommitHoveredAsync();
+                    await _overlay.CommitHoveredAsync(isHoldRelease: true);
                 }
             }),
             "Не удалось завершить выбор");

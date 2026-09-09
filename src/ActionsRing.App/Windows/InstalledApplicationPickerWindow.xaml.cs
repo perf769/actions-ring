@@ -114,7 +114,7 @@ public partial class InstalledApplicationPickerWindow : Window
                             new TextBlock { Text = application.Name, FontWeight = FontWeights.SemiBold },
                             new TextBlock
                             {
-                                Text = application.IsPackaged ? "Microsoft Store" : application.ExecutablePath,
+                                Text = application.IsPackaged ? "Приложение Windows (MSIX)" : application.ExecutablePath ?? application.AppUserModelId,
                                 Style = FindResource("CaptionText") as Style,
                                 TextTrimming = TextTrimming.CharacterEllipsis,
                                 TextWrapping = TextWrapping.NoWrap,
@@ -124,7 +124,7 @@ public partial class InstalledApplicationPickerWindow : Window
                     }, 1),
                     Place(new TextBlock
                     {
-                        Text = application.IsPackaged ? "STORE" : "WIN32",
+                        Text = application.IsPackaged ? "MSIX" : "WIN32",
                         Foreground = FindResource("TextMutedBrush") as Brush,
                         FontSize = 10,
                         FontWeight = FontWeights.Bold,

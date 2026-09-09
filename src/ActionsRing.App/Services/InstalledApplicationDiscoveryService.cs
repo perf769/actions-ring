@@ -11,7 +11,8 @@ public sealed record InstalledApplicationInfo(
     string? ExecutablePath = null,
     string? AppUserModelId = null,
     string? IconPath = null,
-    bool IsPackaged = false)
+    bool IsPackaged = false,
+    string? LaunchArguments = null)
 {
     public string SearchText => string.Join(
         ' ',
@@ -59,7 +60,7 @@ public sealed class InstalledApplicationDiscoveryService
         IEnumerable<InstalledApplicationInfo> applications)
     {
         ArgumentNullException.ThrowIfNull(applications);
-        var unique = new Dictionary<string, InstalledApplicationInfo>(StringComparer.OrdinalIgnoreCase);
+        var unique = new Dictionary<(string Identity, string Arguments), InstalledApplicationInfo>();
         foreach (var application in applications)
         {
             if (string.IsNullOrWhiteSpace(application.Name)
@@ -68,7 +69,7 @@ public sealed class InstalledApplicationDiscoveryService
                 continue;
             }
 
-            var key = application.AppUserModelId ?? application.LaunchTarget;
+            var key = GetApplicationIdentity(application);
             if (!unique.TryGetValue(key, out var current)
                 || Score(application) > Score(current))
             {
@@ -85,6 +86,25 @@ public sealed class InstalledApplicationDiscoveryService
             (application.IconPath is null ? 0 : 4)
             + (application.ExecutablePath is null ? 0 : 2)
             + (application.IsPackaged ? 1 : 0);
+    }
+
+    private static (string Identity, string Arguments) GetApplicationIdentity(InstalledApplicationInfo application)
+    {
+        // Packaged apps can share one host executable, while desktop AppsFolder IDs
+        // can be aliases for a single executable. Neither display names nor process
+        // names identify an installation (for example, stable and beta editions).
+        var target = application.IsPackaged
+            ? application.AppUserModelId ?? application.LaunchTarget
+            : application.ExecutablePath ?? application.LaunchTarget;
+        target = Environment.ExpandEnvironmentVariables(target.Trim().Trim('"'));
+        if (!application.IsPackaged && Path.IsPathFullyQualified(target))
+        {
+            try { target = Path.GetFullPath(target); }
+            catch (Exception exception) when (exception is ArgumentException or IOException or NotSupportedException) { }
+        }
+        return (
+            (application.IsPackaged ? "package:" : "desktop:") + target.ToUpperInvariant(),
+            application.IsPackaged ? string.Empty : application.LaunchArguments?.Trim() ?? string.Empty);
     }
 
     private static IReadOnlyList<InstalledApplicationInfo> Discover(CancellationToken cancellationToken)
@@ -205,8 +225,16 @@ public sealed class InstalledApplicationDiscoveryService
                             null) as string;
                         if (TryNormalizeExecutable(target, out var executable))
                         {
+                            var arguments = GetComString(shortcut, "Arguments")?.Trim();
                             var classic = CreateClassic(executable);
-                            results.Add(classic with { Name = Path.GetFileNameWithoutExtension(shortcutPath) });
+                            results.Add(classic with
+                            {
+                                Name = Path.GetFileNameWithoutExtension(shortcutPath),
+                                // Keep the shortcut when it carries arguments, so distinct
+                                // browser apps and launch modes retain their launch contract.
+                                LaunchTarget = string.IsNullOrEmpty(arguments) ? executable : shortcutPath,
+                                LaunchArguments = arguments,
+                            });
                         }
                     }
                     catch (Exception exception) when (exception is not OperationCanceledException)
@@ -275,18 +303,18 @@ public sealed class InstalledApplicationDiscoveryService
                         continue;
                     }
 
-                    aumid = aumid.Trim();
-
-                    var installPath = GetExtendedProperty(item, "System.AppUserModel.PackageInstallPath");
-                    var manifest = TryReadPackageManifest(installPath, aumid);
-                    results.Add(new InstalledApplicationInfo(
-                        name.Trim(),
-                        $@"shell:AppsFolder\{aumid}",
-                        manifest.ProcessName ?? GuessProcessName(name, aumid),
-                        manifest.ExecutablePath,
+                    var application = CreateAppsFolderEntry(
+                        name,
                         aumid,
-                        manifest.IconPath,
-                        IsPackaged: true));
+                        GetExtendedProperty(item, "System.AppUserModel.PackageFamilyName"),
+                        GetExtendedProperty(item, "System.AppUserModel.PackageFullName"),
+                        GetExtendedProperty(item, "System.AppUserModel.PackageInstallPath"),
+                        GetExtendedProperty(item, "System.Link.TargetParsingPath"),
+                        GetExtendedProperty(item, "System.Link.Arguments"));
+                    if (application is not null)
+                    {
+                        results.Add(application);
+                    }
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -308,6 +336,70 @@ public sealed class InstalledApplicationDiscoveryService
             ReleaseComObject(folder);
             ReleaseComObject(shell);
         }
+    }
+
+    internal static InstalledApplicationInfo? CreateAppsFolderEntry(
+        string name,
+        string appUserModelId,
+        string? packageFamilyName,
+        string? packageFullName,
+        string? packageInstallPath,
+        string? targetParsingPath,
+        string? arguments = null)
+    {
+        if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(appUserModelId))
+        {
+            return null;
+        }
+
+        name = name.Trim();
+        appUserModelId = appUserModelId.Trim();
+        var shellTarget = $@"shell:AppsFolder\{appUserModelId}";
+        // AppsFolder contains both desktop shortcuts and packaged applications.
+        // AUMID alone does not prove a package identity or a Microsoft Store origin.
+        if (!string.IsNullOrWhiteSpace(packageFamilyName) || !string.IsNullOrWhiteSpace(packageFullName))
+        {
+            (string? ExecutablePath, string? ProcessName, string? IconPath) manifest = default;
+            try { manifest = TryReadPackageManifest(packageInstallPath, appUserModelId); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                or System.Xml.XmlException or ArgumentException or NotSupportedException)
+            {
+                // A protected or unavailable manifest must not hide a launchable app.
+                AppLog.Error("Could not read application package metadata", exception);
+            }
+            return new InstalledApplicationInfo(
+                name,
+                shellTarget,
+                manifest.ProcessName ?? GuessProcessName(name, appUserModelId),
+                manifest.ExecutablePath,
+                appUserModelId,
+                manifest.IconPath,
+                IsPackaged: true);
+        }
+
+        if (TryNormalizeExecutable(targetParsingPath ?? appUserModelId, out var executable))
+        {
+            return CreateClassic(executable) with
+            {
+                Name = name,
+                LaunchTarget = string.IsNullOrWhiteSpace(arguments) ? executable : shellTarget,
+                AppUserModelId = appUserModelId,
+                LaunchArguments = arguments?.Trim(),
+            };
+        }
+
+        // Do not list Start menu documents, folders or removed executables as apps.
+        // Retain namespace-only registrations whose launch is handled by the shell.
+        if (!string.IsNullOrWhiteSpace(targetParsingPath) || Path.IsPathFullyQualified(appUserModelId))
+        {
+            return null;
+        }
+        return new InstalledApplicationInfo(
+            name,
+            shellTarget,
+            GuessProcessName(name, appUserModelId),
+            AppUserModelId: appUserModelId,
+            LaunchArguments: arguments?.Trim());
     }
 
     private static InstalledApplicationInfo CreateClassic(string executable)

@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Interop;
 using System.Text.Json;
-using System.Windows.Controls;
 using ActionsRing.App.Services;
 using ActionsRing.Core.Configuration;
 using ActionsRing.Core.Domain;
@@ -12,11 +11,13 @@ public partial class FolderEditorWindow : Window
 {
     private readonly RingSlotDefinition _target;
     private readonly Func<CancellationToken, Task<KeyChord>> _captureShortcut;
+    private readonly ActionCatalogContext? _catalogContext;
     private ActionDefinition? _clickAction;
 
     public FolderEditorWindow(
         RingSlotDefinition target,
-        Func<CancellationToken, Task<KeyChord>>? captureShortcut = null)
+        Func<CancellationToken, Task<KeyChord>>? captureShortcut = null,
+        ActionCatalogContext? catalogContext = null)
     {
         ArgumentNullException.ThrowIfNull(target);
         if (target.Submenu is null)
@@ -25,6 +26,7 @@ public partial class FolderEditorWindow : Window
         }
 
         _target = target;
+        _catalogContext = catalogContext;
         _clickAction = target.Action?.Kind is null or ActionKind.None ? null : Clone(target.Action);
         _captureShortcut = captureShortcut ?? (_ => Task.FromCanceled<KeyChord>(new CancellationToken(canceled: true)));
         InitializeComponent();
@@ -33,11 +35,6 @@ public partial class FolderEditorWindow : Window
         NameBox.Text = target.Submenu.Name;
         SlotCountSlider.Value = target.Submenu.SlotCount;
         SlotCountText.Text = target.Submenu.SlotCount.ToString(System.Globalization.CultureInfo.CurrentCulture);
-        ClickActionChoice.ItemsSource = ActionCatalog.Groups
-            .SelectMany(group => group.Items
-                .Where(item => item.Kind == CatalogItemKind.Action)
-                .Select(item => new ClickActionOption(group.Title, item)))
-            .ToArray();
         RefreshClickAction();
         ApplyResponsiveLayout();
     }
@@ -96,45 +93,59 @@ public partial class FolderEditorWindow : Window
 
     private void OnConfigureClickAction(object sender, RoutedEventArgs e)
     {
-        var action = (ClickActionChoice.SelectedItem as ClickActionOption)?.Item.CreateSlot().Action
-                     ?? _clickAction;
-        if (action is null)
+        if (_clickAction is null)
         {
-            ClickActionChoice.IsDropDownOpen = true;
             return;
         }
 
-        var editor = new ActionEditorWindow(action, _captureShortcut) { Owner = this };
+        var editor = new ActionEditorWindow(_clickAction, _captureShortcut) { Owner = this };
         if (editor.ShowDialog() == true && editor.Result is { } result)
         {
             _clickAction = result;
-            ClickActionChoice.SelectedIndex = -1;
             RefreshClickAction();
         }
+    }
+
+    private void OnChooseClickAction(object sender, RoutedEventArgs e)
+    {
+        var picker = new ActionPickerWindow(_catalogContext) { Owner = this };
+        if (picker.ShowDialog() != true || picker.SelectedItem is not { } item
+            || item.CreateSlot().Action is not { } action)
+        {
+            return;
+        }
+
+        if (item.RequiresConfiguration)
+        {
+            var editor = new ActionEditorWindow(action, _captureShortcut) { Owner = this };
+            if (editor.ShowDialog() != true || editor.Result is not { } configured)
+            {
+                return;
+            }
+            action = configured;
+        }
+
+        _clickAction = Clone(action);
+        RefreshClickAction();
     }
 
     private void OnRemoveClickAction(object sender, RoutedEventArgs e)
     {
         _clickAction = null;
-        ClickActionChoice.SelectedIndex = -1;
         RefreshClickAction();
     }
-
-    private void OnClickActionChoiceChanged(object sender, SelectionChangedEventArgs e) => RefreshClickAction();
 
     private void RefreshClickAction()
     {
         ClickActionName.Text = _clickAction?.Name ?? "Не назначено";
         ClickActionDescription.Text = _clickAction is null
-            ? "Выберите действие из списка и нажмите «Настроить»."
-            : _clickAction.Description ?? _clickAction.LaunchApplication?.ExecutablePath
-              ?? _clickAction.OpenUri?.Uri ?? "Выполняется при нажатии на пузырь.";
-        RemoveClickActionButton.IsEnabled = _clickAction is not null;
-        ClickActionPlaceholder.Text = _clickAction is null ? "Выберите действие…" : "Заменить действие…";
-        ClickActionPlaceholder.Visibility = ClickActionChoice.SelectedIndex < 0 ? Visibility.Visible : Visibility.Collapsed;
-        ConfigureClickActionButton.Content = _clickAction is not null && ClickActionChoice.SelectedIndex < 0
-            ? "Изменить"
-            : "Настроить";
+            ? "Пузырь только открывает подменю."
+            : new[] { _clickAction.Description, _clickAction.LaunchApplication?.ExecutablePath, _clickAction.OpenUri?.Uri }
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "Выполняется при нажатии на пузырь.";
+        ClickActionIcon.SetIcon(_clickAction is null ? "lucide:mouse-pointer-2" : _clickAction.Icon, _clickAction);
+        ChooseClickActionButton.Content = _clickAction is null ? "Выбрать действие" : "Заменить";
+        ConfigureClickActionButton.Visibility = _clickAction is null ? Visibility.Collapsed : Visibility.Visible;
+        RemoveClickActionButton.Visibility = _clickAction is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void OnSave(object sender, RoutedEventArgs e)
@@ -188,11 +199,4 @@ public partial class FolderEditorWindow : Window
 
     private static ActionDefinition Clone(ActionDefinition action) =>
         JsonSerializer.Deserialize<ActionDefinition>(JsonSerializer.Serialize(action, ConfigurationJson.Options), ConfigurationJson.Options)!;
-
-    private sealed record ClickActionOption(string Group, ActionCatalogItem Item)
-    {
-        public string Title => Item.Title;
-
-        public string Label => $"{Group} · {Title}";
-    }
 }

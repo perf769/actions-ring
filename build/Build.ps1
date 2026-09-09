@@ -485,3 +485,8 @@ finally {
 
 Write-Status "Published: $publishDirectory"
 Write-Status "Packaged:  $archivePath"
+
+$checksumPath = Join-Path $distributionRoot 'SHA256SUMS.txt'
+$checksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+[System.IO.File]::WriteAllText($checksumPath, "$checksum  ActionsRing-portable.zip`n", [System.Text.UTF8Encoding]::new($false))
+Write-Status "Checksum:  $checksumPath"
