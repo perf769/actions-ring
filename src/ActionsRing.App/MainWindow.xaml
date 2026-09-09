@@ -504,15 +504,16 @@
                             </Border>
 
                             <Border Style="{StaticResource CardBorder}" Margin="0,16,0,0">
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel Margin="0,0,20,0">
-                                        <TextBlock Text="Локальные данные" FontWeight="SemiBold" />
-                                        <TextBlock Text="Профили и ввод остаются на этом компьютере. Для проверки обновлений используется GitHub." Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
-                                    </StackPanel>
-                                    <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Папка настроек" Click="OnOpenSettingsFolder" VerticalAlignment="Center" />
-                                    <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="Журнал" Click="OnOpenLog" Margin="9,0,0,0" VerticalAlignment="Center" />
-                                </Grid>
+                                <StackPanel>
+                                    <TextBlock Text="Данные и поддержка" FontWeight="SemiBold" />
+                                    <TextBlock Text="Форма на GitHub включает только версию программы, Windows и архитектуру — без настроек и журналов. Для отправки нужен аккаунт GitHub; сообщение будет публичным." Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                                    <WrapPanel Margin="0,12,0,-6">
+                                        <Button Style="{StaticResource SecondaryButton}" Content="Папка настроек" Click="OnOpenSettingsFolder" Margin="0,0,9,6" />
+                                        <Button Style="{StaticResource SecondaryButton}" Content="Журнал" Click="OnOpenLog" Margin="0,0,9,6" />
+                                        <Button x:Name="ReportBugButton" Style="{StaticResource SecondaryButton}" Content="Сообщить об ошибке" Click="OnReportBug" Margin="0,0,0,6"
+                                                ToolTip="Открыть форму в браузере. Вы сможете проверить текст перед отправкой." />
+                                    </WrapPanel>
+                                </StackPanel>
                             </Border>
                         </StackPanel>
                     </ScrollViewer>

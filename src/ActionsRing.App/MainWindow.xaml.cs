@@ -2286,6 +2286,26 @@ public partial class MainWindow : Window
         Process.Start(new ProcessStartInfo(AppLog.CurrentPath) { UseShellExecute = true });
     }
 
+    private void OnReportBug(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(BugReportService.CreateIssueUri().AbsoluteUri)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception
+                                          or InvalidOperationException
+                                          or IOException
+                                          or UnauthorizedAccessException
+                                          or System.Security.SecurityException)
+        {
+            AppLog.Error("Could not open the bug report form", exception);
+            ShowStatus("Не удалось открыть браузер. Проверьте браузер по умолчанию.", isError: true);
+        }
+    }
+
     private (string Name, RingDefinition Ring, RingStyleDefinition Style) GetSelectedProfile()
     {
         var userProfile = _controller.Configuration.GetActiveUserProfile();
