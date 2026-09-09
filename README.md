@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/perf769/actions-ring/releases/latest"><strong>Скачать для Windows</strong></a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
-  <a href="./macOS/README.md">Версия для Mac</a>
+  <a href="https://github.com/perf769/actions-ring/releases/tag/macos-v0.1.0">Скачать для Mac · Preview</a>
   &nbsp;&nbsp;·&nbsp;&nbsp;
   <a href="https://github.com/perf769/actions-ring">Исходный код</a>
 </p>
