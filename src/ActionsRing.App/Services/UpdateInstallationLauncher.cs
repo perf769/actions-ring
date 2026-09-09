@@ -134,6 +134,8 @@ public sealed class UpdateInstallationLauncher
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
         };
+        // Windows PowerShell must not inherit incompatible PowerShell 7 modules.
+        startInfo.Environment["PSModulePath"] = Path.Combine(Path.GetDirectoryName(powershellPath)!, "Modules");
         AddArgument(startInfo, "-NoLogo");
         AddArgument(startInfo, "-NoProfile");
         AddArgument(startInfo, "-NonInteractive");
@@ -408,9 +410,10 @@ public sealed class UpdateInstallationLauncher
     private static void AddArgument(ProcessStartInfo startInfo, string value) =>
         startInfo.ArgumentList.Add(value);
 
-    private static bool IsProcessElevated()
+    internal static bool IsProcessElevated()
     {
-        using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
+        // Membership checks duplicate a primary token to create an impersonation token.
+        using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query | TokenAccessLevels.Duplicate);
         return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 
@@ -470,6 +473,23 @@ public sealed class UpdateInstallationLauncher
         Set-StrictMode -Version Latest
         $ErrorActionPreference = 'Stop'
 
+        function Write-UpdateLog {
+            param([string]$Message)
+            try {
+                $logPath = Join-Path $PSScriptRoot 'install.log'
+                $directory = Get-Item -LiteralPath $PSScriptRoot -Force
+                if (($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return }
+                if (Test-Path -LiteralPath $logPath) {
+                    $file = Get-Item -LiteralPath $logPath -Force
+                    if ($file.PSIsContainer -or $file.Length -ge 1MB -or
+                        ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return }
+                }
+                $line = '[{0:o}] {1}{2}' -f [DateTimeOffset]::Now, $Message, [Environment]::NewLine
+                [IO.File]::AppendAllText($logPath, $line, (New-Object Text.UTF8Encoding($false)))
+            }
+            catch { }
+        }
+
         function Test-ParentProcessStillRunning {
             $candidate = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
             if ($null -eq $candidate) {
@@ -512,6 +532,7 @@ public sealed class UpdateInstallationLauncher
         }
 
         try {
+            Write-UpdateLog 'Preparing update installation.'
             $deadline = [DateTime]::UtcNow.AddMinutes(2)
             while ([DateTime]::UtcNow -lt $deadline) {
                 if (-not (Test-ParentProcessStillRunning)) {
@@ -595,7 +616,9 @@ public sealed class UpdateInstallationLauncher
             }
 
             $installerHost = Join-Path $PSHOME 'powershell.exe'
-            & $installerHost -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $InstallerPath -SourceDirectory $PayloadDirectory -Quiet
+            Write-UpdateLog 'Package verified. Starting installer.'
+            & $installerHost -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $InstallerPath -SourceDirectory $PayloadDirectory -Quiet 2>&1 |
+                ForEach-Object { Write-UpdateLog ([string]$_) }
             if ($LASTEXITCODE -ne 0) {
                 throw "The update installer exited with code $LASTEXITCODE."
             }
@@ -603,13 +626,16 @@ public sealed class UpdateInstallationLauncher
                 throw 'The updated executable was not installed.'
             }
             Start-Process -FilePath $InstalledExecutable
+            Write-UpdateLog 'Installation completed. Updated application started.'
             exit 0
         }
         catch {
+            Write-UpdateLog ("Installation failed: " + $_.Exception.ToString() + [Environment]::NewLine + $_.ScriptStackTrace)
             try {
                 Start-PreviousVersion
             }
             catch {
+                Write-UpdateLog ("Could not restart previous version: " + $_.Exception.ToString())
             }
             exit 1
         }

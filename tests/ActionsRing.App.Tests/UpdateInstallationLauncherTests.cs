@@ -61,6 +61,7 @@ public sealed class UpdateInstallationLauncherTests
         StringAssert.EndsWith(installedExecutable, @"Programs\ActionsRing\ActionsRing.exe");
         var bootstrapPath = Path.Combine(package.RootDirectory, "ApplyActionsRingUpdate.ps1");
         var manifestPath = Path.Combine(package.RootDirectory, "install-payload.json");
+        Assert.AreEqual(Path.Combine(Path.GetDirectoryName(powershellPath)!, "Modules"), startInfo.Environment["PSModulePath"]);
         Assert.IsTrue(File.Exists(bootstrapPath));
         Assert.IsTrue(File.Exists(manifestPath));
         var bootstrap = File.ReadAllText(bootstrapPath);
@@ -171,6 +172,45 @@ public sealed class UpdateInstallationLauncherTests
             SpinWait.SpinUntil(() => File.Exists(markerPath), TimeSpan.FromSeconds(5)),
             "Previous-version fallback was not started.");
         Assert.AreEqual("--update-failed", File.ReadAllText(markerPath).Trim());
+        StringAssert.Contains(File.ReadAllText(Path.Combine(package.RootDirectory, "install.log")), "exited with code 17");
+    }
+
+    [TestMethod]
+    public void GeneratedBootstrap_CompletesInstallationAndRequestsUpdatedExecutable()
+    {
+        var package = CreatePackage("param([string]$SourceDirectory, [switch]$Quiet)\n"
+            + "[IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($env:ACTIONSRING_TEST_TARGET)) | Out-Null\n"
+            + "[IO.File]::WriteAllText($env:ACTIONSRING_TEST_TARGET, 'installed')\nexit 0");
+        var localApplicationData = Path.Combine(_temporaryRoot, "Local App Data");
+        Directory.CreateDirectory(localApplicationData);
+        var (startInfo, installedExecutable) = new UpdateInstallationLauncher().PrepareLaunch(
+            package, int.MaxValue, Environment.GetFolderPath(Environment.SpecialFolder.System),
+            localApplicationData, CreateFallbackExecutable(), 134_172_894_000_000_000L);
+        var probe = Path.Combine(_temporaryRoot, "launch-request.txt");
+        var wrapper = Path.Combine(_temporaryRoot, "run-bootstrap.ps1");
+        // Keep validation and installer execution real; intercept only the final UI launch.
+        File.WriteAllText(wrapper,
+            "function Start-Process { param([string]$FilePath, [string[]]$ArgumentList) "
+            + "[IO.File]::WriteAllText($env:ACTIONSRING_TEST_PROBE, $FilePath) }\n& "
+            + "'" + startInfo.ArgumentList[6].Replace("'", "''") + "' "
+            + string.Join(" ", startInfo.ArgumentList.Skip(7).Chunk(2).Select(pair => pair[0] + " '" + pair[1].Replace("'", "''") + "'")));
+        startInfo.ArgumentList.Clear();
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", wrapper })
+            startInfo.ArgumentList.Add(argument);
+        startInfo.Environment["ACTIONSRING_TEST_TARGET"] = installedExecutable;
+        startInfo.Environment["ACTIONSRING_TEST_PROBE"] = probe;
+        startInfo.RedirectStandardError = true;
+        startInfo.RedirectStandardOutput = true;
+        using var process = Process.Start(startInfo);
+        Assert.IsNotNull(process);
+        Assert.IsTrue(process.WaitForExit(15_000));
+        Assert.AreEqual(0, process.ExitCode, process.StandardError.ReadToEnd());
+        Assert.IsTrue(File.Exists(installedExecutable), process.StandardOutput.ReadToEnd()
+            + (File.Exists(Path.Combine(package.RootDirectory, "install.log"))
+                ? File.ReadAllText(Path.Combine(package.RootDirectory, "install.log")) : "No bootstrap log"));
+        Assert.AreEqual("installed", File.ReadAllText(installedExecutable));
+        Assert.AreEqual(installedExecutable, File.ReadAllText(probe));
+        StringAssert.Contains(File.ReadAllText(Path.Combine(package.RootDirectory, "install.log")), "Installation completed");
     }
 
     private StagedUpdatePackage CreatePackage(string installerContents = "# installer")

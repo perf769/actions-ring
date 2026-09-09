@@ -185,7 +185,7 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RefreshAll();
-        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.2.0"}";
+        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.2.1"}";
         if (!_controller.Configuration.Onboarding.IsCompleted)
         {
             ShowOnboarding(1);

@@ -72,7 +72,7 @@ public partial class App : Application
             var theme = new ThemeService();
             theme.Apply(load.Configuration.Preferences.Appearance);
             _controller = new ApplicationController(load.Configuration, _store, theme);
-            var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(2, 2, 0);
+            var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version ?? new Version(2, 2, 1);
             _updateService = new UpdateService(SemanticVersion.FromVersion(assemblyVersion));
             _mainWindow = new MainWindow(_controller, theme, _updateService);
             MainWindow = _mainWindow;
