@@ -168,10 +168,21 @@ public sealed class UpdateInstallationLauncherTests
         Assert.IsTrue(process.WaitForExit(15_000), "Update bootstrap did not finish in time.");
         var standardError = process.StandardError.ReadToEnd();
         Assert.AreEqual(1, process.ExitCode, standardError);
+        string? marker = null;
         Assert.IsTrue(
-            SpinWait.SpinUntil(() => File.Exists(markerPath), TimeSpan.FromSeconds(5)),
-            "Previous-version fallback was not started.");
-        Assert.AreEqual("--update-failed", File.ReadAllText(markerPath).Trim());
+            SpinWait.SpinUntil(() =>
+            {
+                // The fallback is deliberately asynchronous. File creation happens
+                // before cmd closes its redirection handle and finishes the line.
+                try
+                {
+                    marker = File.ReadAllText(markerPath);
+                    return marker.EndsWith(Environment.NewLine, StringComparison.Ordinal);
+                }
+                catch (IOException) { return false; }
+            }, TimeSpan.FromSeconds(5)),
+            "Previous-version fallback did not finish writing its launch marker.");
+        Assert.AreEqual("--update-failed", marker!.Trim());
         StringAssert.Contains(File.ReadAllText(Path.Combine(package.RootDirectory, "install.log")), "exited with code 17");
     }
 
