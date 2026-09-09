@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import SwiftUI
 import ActionsRingKit
 
@@ -32,7 +33,13 @@ private final class RingApplicationDelegate: NSObject, NSApplicationDelegate {
         do {
             let store = try ConfigurationStore()
             controller = AppController(store: store)
-            controller?.start()
+            // SMAppService launches the main app without custom CLI arguments.
+            // Inspect the launch Apple event while applicationDidFinishLaunching is
+            // handling it, so login launches remain quiet in the menu bar.
+            let event = NSAppleEventManager.shared().currentAppleEvent
+            let launchedAtLogin = event?.eventID == AEEventID(kAEOpenApplication)
+                && event?.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+            controller?.start(startInBackground: launchedAtLogin || CommandLine.arguments.contains("--background"))
         } catch {
             let alert = NSAlert()
             alert.messageText = "Не удалось открыть Actions Ring"
@@ -80,6 +87,22 @@ private enum MacVisualSmoke {
             RingSlot(action: RingAction(name: "Снимок экрана", kind: .shortcut, value: "3", icon: .symbol("camera"))),
             RingSlot(action: RingAction(name: "Finder", kind: .system, value: "finder", icon: .symbol("folder")))
         ])
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            try render(ActionEditorView(action: RingAction(name: "Копировать", kind: .shortcut, value: "C", modifiers: [.command]),
+                                        captureShortcut: { _ in }, onSave: { _ in }),
+                       size: NSSize(width: 620, height: 700), dark: dark,
+                       to: directory.appendingPathComponent("action-editor-\(suffix).png"))
+            try render(SlotEditorView(slot: fixture.slots[6], bundleIdentifier: "com.adobe.Photoshop", palette: fixture.effectivePalette,
+                                      captureShortcut: { _ in }, onSave: { _ in }),
+                       size: NSSize(width: 700, height: 740), dark: dark,
+                       to: directory.appendingPathComponent("submenu-editor-\(suffix).png"))
+            try render(ActionLibraryView(bundleIdentifier: "com.adobe.Photoshop", captureShortcut: { _ in },
+                                         cancelShortcutCapture: {}, onSelect: { _ in }),
+                       size: NSSize(width: 780, height: 700), dark: dark,
+                       to: directory.appendingPathComponent("action-library-\(suffix).png"))
+        }
         for theme in [RingTheme.light, .dark, .purple] {
             fixture.theme = theme
             controller.showRingPreview(profile: fixture)
@@ -96,6 +119,18 @@ private enum MacVisualSmoke {
         controller.ring.hide()
         guard !controller.ring.isVisible else { throw CocoaError(.coderInvalidValue) }
         try store.save()
+    }
+
+    private static func render<Content: View>(_ view: Content, size: NSSize, dark: Bool, to url: URL) throws {
+        let host = NSHostingView(rootView: view.environment(\.colorScheme, dark ? .dark : .light))
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.setFrameOrigin(NSPoint(x: -3000, y: -3000))
+        window.orderBack(nil)
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+        host.layoutSubtreeIfNeeded()
+        try capture(host, to: url)
+        window.orderOut(nil)
     }
 
     private static func capture(_ view: NSView, to url: URL) throws {

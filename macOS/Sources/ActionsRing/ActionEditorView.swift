@@ -42,12 +42,13 @@ struct ActionEditorView: View {
             }
             editorFooter {
                 Button("Отмена", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Сохранить") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button("Сохранить") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(capturing)
             }
         }
         .frame(width: 600, height: 650).tint(RingSettingsStyle.accent)
         .onChange(of: draft.kind) { oldValue, newValue in
             guard oldValue != newValue else { return }
+            if capturing { cancelShortcutCapture(); capturing = false }
             draft.value = newValue == .shortcut ? "Space" : newValue == .system ? "copy" : ""
             draft.modifiers = []
             draft.icon = .symbol(newValue.settingsSymbol)
@@ -69,19 +70,29 @@ struct ActionEditorView: View {
                 HStack {
                     Text(draft.shortcutLabel).font(.system(size: 24, weight: .medium, design: .rounded))
                     Spacer()
-                    Button(capturing ? "Нажмите сочетание…" : "Записать сочетание") {
+                    Button(capturing ? "Отменить запись" : "Записать сочетание") {
+                        if capturing {
+                            cancelShortcutCapture()
+                            capturing = false
+                            return
+                        }
+                        guard MacInputService.accessibilityGranted && MacInputService.inputMonitoringGranted else {
+                            error = "Для записи разрешите Универсальный доступ и Мониторинг ввода в настройках macOS. Клавишу также можно выбрать вручную."
+                            return
+                        }
                         capturing = true
                         captureShortcut { key, modifiers in
                             draft.value = key
                             draft.modifiers = modifiers
                             capturing = false
                         }
-                    }.disabled(capturing)
+                    }
                 }
-                ModifierSelector(modifiers: $draft.modifiers)
+                if capturing { Text("Нажмите сочетание. Для ручного выбора отмените запись.").font(.caption).foregroundStyle(.secondary) }
+                ModifierSelector(modifiers: $draft.modifiers).disabled(capturing)
                 Picker("Клавиша", selection: $draft.value) {
                     ForEach(KeyboardKeys.supported, id: \.self) { Text($0).tag($0) }
-                }
+                }.disabled(capturing)
             }
         case .application:
             field("Приложение или файл") {
@@ -274,11 +285,13 @@ struct SlotEditorView: View {
                                 if child.hasSubmenu { Text("Подменю: \(child.submenu?.count ?? 0)").font(.caption).foregroundStyle(.secondary) }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }.buttonStyle(.plain)
-                        Button { editingChild = child } label: { Image(systemName: "pencil") }.help("Настроить пузырь")
+                        Button { editingChild = child } label: { Image(systemName: "pencil") }
+                            .help("Настроить пузырь").accessibilityLabel("Настроить \(child.label)")
                         Button {
                             if child.action != nil || child.hasSubmenu { pendingChildRemoval = child }
                             else { draft.submenu?.removeAll { $0.id == child.id } }
-                        } label: { Image(systemName: "minus.circle") }.help("Удалить пузырь")
+                        } label: { Image(systemName: "minus.circle") }
+                            .help("Удалить пузырь").accessibilityLabel("Удалить \(child.label)")
                     }
                     .padding(9).background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
                 }
@@ -424,7 +437,8 @@ struct ModifierSelector: View {
                                     in: RoundedRectangle(cornerRadius: 9))
                         .foregroundStyle(modifiers.contains(modifier) ? RingSettingsStyle.accent : Color.primary)
                 }
-                .buttonStyle(.plain).help(modifier.rawValue)
+                .buttonStyle(.plain).help(modifier.rawValue).accessibilityLabel(modifier.rawValue)
+                .accessibilityValue(modifiers.contains(modifier) ? "Выбран" : "Не выбран")
                 .disabled(requiresModifier && modifiers.count == 1 && modifiers.contains(modifier))
             }
         }

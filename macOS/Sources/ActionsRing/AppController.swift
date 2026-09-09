@@ -10,6 +10,8 @@ final class AppController: NSObject, ObservableObject {
     @Published var isEnabled = true { didSet { if isEnabled != oldValue { updateInput(); rebuildMenu() } } }
     @Published var accessibilityGranted = false
     @Published var inputMonitoringGranted = false
+    @Published private(set) var isInputReady = false
+    @Published private(set) var launchAtLoginEnabled = false
     @Published var statusMessage: String?
     var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0" }
     private let input = MacInputService()
@@ -22,33 +24,59 @@ final class AppController: NSObject, ObservableObject {
     private var targetApplication: NSRunningApplication?
     private var previewing = false
     private var lastBinding: TriggerBinding?
+    private var lastSavedConfiguration: RingConfiguration
+    private var inputGeneration = 0
+    private var hasStarted = false
+    private var pendingActions: [UUID: Task<Void, Never>] = [:]
+    private var actionTail: Task<Void, Never>?
     private let runtimeEnabled: Bool
 
     init(store: ConfigurationStore, enableRuntime: Bool = true) {
         self.store = store
+        lastSavedConfiguration = store.configuration
         runtimeEnabled = enableRuntime
         super.init()
         input.onTrigger = { [weak self] in
+            guard let self else { return }
             let foreground = NSWorkspace.shared.frontmostApplication
-            DispatchQueue.main.async { self?.handleTrigger(frontmost: foreground) }
+            let generation = self.inputGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.hasStarted, self.isInputReady, self.inputGeneration == generation else { return }
+                self.handleTrigger(frontmost: foreground)
+            }
         }
         input.onRelease = { [weak self] in
-            DispatchQueue.main.async {
-                guard let self, self.store.configuration.trigger.mode == .hold else { return }
+            guard let self else { return }
+            let generation = self.inputGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.hasStarted, self.isEnabled, self.isInputReady,
+                      self.inputGeneration == generation, self.store.configuration.trigger.mode == .hold else { return }
                 self.ring.commit(holdRelease: true)
             }
         }
         input.onError = { [weak self] message in
-            DispatchQueue.main.async { self?.ring.hide(); self?.statusMessage = message }
+            guard let self else { return }
+            let generation = self.inputGeneration
+            // Invalidate immediately: an already queued press/release must not run
+            // after permission loss or after the event tap has been disabled.
+            self.isInputReady = false
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.inputGeneration == generation else { return }
+                self.invalidateInteraction()
+                self.refreshPermissions()
+                self.statusMessage = message
+            }
         }
         ring.onAction = { [weak self] action in self?.execute(action) }
         ring.onClose = { [weak self] in self?.rebuildMenu() }
         refreshPermissions()
+        refreshLoginItemStatus()
         applyAppearance()
     }
 
-    func start() {
-        guard runtimeEnabled else { return }
+    func start(startInBackground: Bool = false) {
+        guard runtimeEnabled, !hasStarted else { return }
+        hasStarted = true
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem?.button?.image = NSImage(systemSymbolName: "circle.hexagongrid", accessibilityDescription: "Actions Ring")
         rebuildMenu()
@@ -58,24 +86,37 @@ final class AppController: NSObject, ObservableObject {
                 guard let self else { return }
                 let hadAccess = self.accessibilityGranted && self.inputMonitoringGranted
                 self.refreshPermissions()
+                self.refreshLoginItemStatus()
                 if hadAccess != (self.accessibilityGranted && self.inputMonitoringGranted) { self.updateInput() }
             }
         }
         escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 53 { Task { @MainActor in self?.ring.hide() } }
+            guard event.keyCode == 53,
+                  event.cgEvent?.getIntegerValueField(.eventSourceUserData) != MacSyntheticEvent.tag else { return }
+            Task { @MainActor in
+                guard let self, self.hasStarted, self.ring.isVisible else { return }
+                self.ring.hide()
+            }
         }
-        if !CommandLine.arguments.contains("--background") || !accessibilityGranted || !inputMonitoringGranted { openSettings() }
+        if !startInBackground && !CommandLine.arguments.contains("--background") { openSettings() }
     }
 
     func stop() {
+        hasStarted = false
+        isInputReady = false
+        invalidateInteraction()
         permissionTimer?.invalidate()
+        permissionTimer = nil
         if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
         input.stop()
         ring.hide()
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        statusItem = nil
     }
 
     func openSettings() {
+        invalidateInteraction()
         if settingsWindow == nil {
             let view = SettingsView(controller: self, store: store)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1220, height: 800),
@@ -93,6 +134,7 @@ final class AppController: NSObject, ObservableObject {
 
     func showRingPreview(profile: RingProfile? = nil) {
         guard let chosen = profile ?? store.configuration.profile(for: nil) else { return }
+        invalidateInteraction()
         previewing = true
         targetApplication = nil
         ring.show(profile: chosen, preferences: store.configuration.preferences)
@@ -101,10 +143,29 @@ final class AppController: NSObject, ObservableObject {
     func saveConfiguration() {
         do {
             try store.save()
+            lastSavedConfiguration = store.configuration
+            invalidateInteraction()
             applyAppearance()
             if lastBinding != store.configuration.trigger { updateInput() }
             rebuildMenu()
-        } catch { statusMessage = error.localizedDescription }
+        } catch {
+            // Roll back only memory. The store refuses to replace externally edited
+            // files, and no second write is attempted after a failed transaction.
+            store.configuration = lastSavedConfiguration
+            applyAppearance()
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    /// Import/restore have already persisted atomically; a second save would replace
+    /// the useful pre-import backup. Adopt the new checkpoint and reapply runtime state.
+    func configurationDidChange() {
+        lastSavedConfiguration = store.configuration
+        invalidateInteraction()
+        applyAppearance()
+        refreshLoginItemStatus()
+        updateInput()
+        rebuildMenu()
     }
 
     func requestPermissions() {
@@ -120,6 +181,7 @@ final class AppController: NSObject, ObservableObject {
             statusMessage = "Разрешите Универсальный доступ и Мониторинг ввода или выберите клавишу вручную."
             return
         }
+        invalidateInteraction()
         input.captureShortcut(completion: completion)
     }
 
@@ -127,17 +189,22 @@ final class AppController: NSObject, ObservableObject {
 
     func setLaunchAtLogin(_ enabled: Bool) {
         guard runtimeEnabled else { return }
+        let service = SMAppService.mainApp
         do {
-            if enabled { try SMAppService.mainApp.register() }
-            else { try SMAppService.mainApp.unregister() }
-            store.configuration.preferences.launchAtLogin = enabled
+            let registered = service.status == .enabled || service.status == .requiresApproval
+            if enabled && !registered { try service.register() }
+            else if !enabled && registered { try service.unregister() }
+            refreshLoginItemStatus()
+            store.configuration.preferences.launchAtLogin = launchAtLoginEnabled
             try store.save()
-            if SMAppService.mainApp.status == .requiresApproval {
+            lastSavedConfiguration = store.configuration
+            if service.status == .requiresApproval {
                 statusMessage = "Подтвердите автозапуск Actions Ring в системных настройках → Основные → Объекты входа."
                 SMAppService.openSystemSettingsLoginItems()
             }
         } catch {
-            store.configuration.preferences.launchAtLogin = SMAppService.mainApp.status == .enabled
+            store.configuration = lastSavedConfiguration
+            refreshLoginItemStatus()
             statusMessage = error.localizedDescription
         }
     }
@@ -191,21 +258,41 @@ final class AppController: NSObject, ObservableObject {
         inputMonitoringGranted = MacInputService.inputMonitoringGranted
     }
 
+    private func refreshLoginItemStatus() {
+        guard runtimeEnabled else {
+            launchAtLoginEnabled = store.configuration.preferences.launchAtLogin
+            return
+        }
+        let status = SMAppService.mainApp.status
+        launchAtLoginEnabled = status == .enabled || status == .requiresApproval
+    }
+
+    private func invalidateInteraction() {
+        inputGeneration += 1
+        ring.hide()
+        for task in pendingActions.values { task.cancel() }
+        pendingActions.removeAll()
+        actionTail = nil
+    }
+
     private func updateInput() {
-        guard runtimeEnabled else { return }
+        guard runtimeEnabled, hasStarted else { return }
+        invalidateInteraction()
+        isInputReady = false
         input.stop()
         ring.hide()
         lastBinding = store.configuration.trigger
         guard isEnabled else { ring.hide(); return }
         if accessibilityGranted && inputMonitoringGranted {
-            if !input.start(binding: store.configuration.trigger) {
+            isInputReady = input.start(binding: store.configuration.trigger)
+            if !isInputReady {
                 statusMessage = "Не удалось включить вызов кольца. Проверьте разрешения и перезапустите приложение."
             }
         }
     }
 
     private func handleTrigger(frontmost: NSRunningApplication?) {
-        guard isEnabled else { return }
+        guard isEnabled, isInputReady, hasStarted else { return }
         if ring.isVisible {
             if store.configuration.trigger.mode == .toggle { ring.commit(holdRelease: false) }
             return
@@ -218,11 +305,23 @@ final class AppController: NSObject, ObservableObject {
 
     private func execute(_ action: RingAction) {
         guard !previewing else { statusMessage = "Предпросмотр: \(action.name)"; return }
+        guard runtimeEnabled, hasStarted, isEnabled, isInputReady else { return }
         let target = targetApplication
-        Task {
-            do { try await actions.execute(action, target: target) }
-            catch { statusMessage = error.localizedDescription }
+        let generation = inputGeneration
+        let id = UUID()
+        let predecessor = actionTail
+        let task = Task { [weak self] in
+            await predecessor?.value
+            guard let self else { return }
+            defer { self.pendingActions[id] = nil }
+            guard !Task.isCancelled, self.hasStarted, self.isEnabled, self.isInputReady,
+                  self.inputGeneration == generation else { return }
+            do { try await self.actions.execute(action, target: target) }
+            catch is CancellationError { }
+            catch { self.statusMessage = error.localizedDescription }
         }
+        pendingActions[id] = task
+        actionTail = task
     }
 
     private func rebuildMenu() {

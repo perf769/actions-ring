@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import ActionsRingKit
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -39,6 +40,8 @@ struct SettingsView: View {
     @State private var showingRenameUser = false
     @State private var showingReset = false
     @State private var showingDeleteUser = false
+    @State private var pendingDeleteProfile: RingProfile?
+    @State private var pendingImport: URL?
     @State private var profileName = ""
     @State private var search = ""
     @State private var categoryID = "all"
@@ -53,6 +56,7 @@ struct SettingsView: View {
     private var user: UserProfile? { store.configuration.activeUserProfile }
     private var profile: RingProfile {
         user?.profiles.first { $0.id == selectedProfileID }
+            ?? user?.profiles.first { $0.bundleIdentifier == nil }
             ?? user?.profiles.first ?? RingProfile(slots: ActionCatalog.defaultSlots())
     }
     private var selectedSlot: RingSlot? { profile.slots.first { $0.id == selectedSlotID } }
@@ -74,6 +78,16 @@ struct SettingsView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let status = controller.statusMessage, !status.isEmpty {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "info.circle").foregroundStyle(RingSettingsStyle.accent)
+                        Text(status).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        Button { controller.statusMessage = nil } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.plain).help("Закрыть сообщение").accessibilityLabel("Закрыть сообщение")
+                    }
+                    .padding(14).background(RingSettingsStyle.accent.opacity(0.08))
+                    .overlay(alignment: .top) { Divider() }
+                }
             }
         }
         .frame(minWidth: 900, minHeight: 600)
@@ -102,7 +116,7 @@ struct SettingsView: View {
             TextField("Название", text: $profileName)
             Button("Отмена", role: .cancel) {}
             Button("Создать") { createUser() }
-                .disabled(profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || profileName.count > 120)
         } message: { Text("У каждого профиля — свои кольца для приложений.") }
         .alert("Название профиля", isPresented: $showingRenameUser) {
             TextField("Название", text: $profileName)
@@ -116,6 +130,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            .disabled(profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || profileName.count > 120)
         }
         .confirmationDialog("Вернуть стандартные действия?", isPresented: $showingReset) {
             Button("Вернуть по умолчанию", role: .destructive) {
@@ -126,13 +141,39 @@ struct SettingsView: View {
         .confirmationDialog("Удалить профиль «\(user?.name ?? "")»?", isPresented: $showingDeleteUser) {
             Button("Удалить профиль", role: .destructive) { deleteUser() }
         } message: { Text("Все кольца этого профиля будут удалены.") }
+        .confirmationDialog("Удалить кольцо «\(pendingDeleteProfile?.name ?? "")»?", isPresented: Binding(
+            get: { pendingDeleteProfile != nil }, set: { if !$0 { pendingDeleteProfile = nil } })) {
+                Button("Удалить кольцо", role: .destructive) {
+                    guard let target = pendingDeleteProfile else { return }
+                    mutate { config in
+                        guard let index = config.userProfiles.firstIndex(where: { $0.id == config.activeUserProfileID }) else { return }
+                        config.userProfiles[index].profiles.removeAll { $0.id == target.id }
+                    }
+                    if selectedProfileID == target.id { selectedProfileID = nil; selectedSlotID = nil }
+                    pendingDeleteProfile = nil
+                }
+            } message: { Text("Для приложения снова будет использоваться общее кольцо.") }
+        .confirmationDialog("Импортировать настройки?", isPresented: Binding(
+            get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } })) {
+                Button("Импортировать", role: .destructive) { importConfiguration() }
+            } message: {
+                Text("Все профили на этом Mac будут заменены. Текущие настройки сохранятся в резервной копии.")
+            }
         .onChange(of: store.configuration.activeUserProfileID) { _, _ in
             selectedProfileID = nil
             selectedSlotID = nil
             search = ""
             categoryID = "all"
         }
+        .onChange(of: selectedProfileID) { _, _ in
+            selectedSlotID = nil
+            search = ""
+            categoryID = "all"
+        }
         .onChange(of: section) { _, _ in
+            if capturing { controller.cancelShortcutCapture(); capturing = false }
+        }
+        .onChange(of: store.configuration.trigger.device) { _, _ in
             if capturing { controller.cancelShortcutCapture(); capturing = false }
         }
         .onDisappear { controller.cancelShortcutCapture() }
@@ -170,8 +211,8 @@ struct SettingsView: View {
             Spacer()
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Circle().fill(controller.isEnabled ? Color.green : Color.secondary).frame(width: 7, height: 7)
-                    Text(controller.isEnabled ? "Кольцо активно" : "Кольцо приостановлено").font(.caption)
+                    Circle().fill(controller.isInputReady ? Color.green : Color.secondary).frame(width: 7, height: 7)
+                    Text(controller.isInputReady ? "Кольцо активно" : controller.isEnabled ? "Настройте доступ к вводу" : "Кольцо приостановлено").font(.caption)
                 }
                 Text(user?.name ?? "Основной").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -358,10 +399,11 @@ struct SettingsView: View {
                         ForEach(store.configuration.userProfiles) { Text($0.name).tag($0.id) }
                     }
                     Button { profileName = ""; showingNewUser = true } label: { Label("Создать", systemImage: "plus") }
+                        .disabled(store.configuration.userProfiles.count >= 24)
                 }
                 HStack {
                     Button("Переименовать") { profileName = user?.name ?? ""; showingRenameUser = true }
-                    Button("Создать копию") { duplicateUser() }
+                    Button("Создать копию") { duplicateUser() }.disabled(store.configuration.userProfiles.count >= 24)
                     Spacer()
                     Button("Удалить", role: .destructive) { showingDeleteUser = true }
                         .disabled(store.configuration.userProfiles.count < 2)
@@ -391,12 +433,9 @@ struct SettingsView: View {
                     }
                     Button("Настроить") { selectedProfileID = item.id; selectedSlotID = nil; section = .ring }
                     if item.bundleIdentifier != nil {
-                        Button(role: .destructive) {
-                            mutate { config in
-                                guard let index = config.userProfiles.firstIndex(where: { $0.id == config.activeUserProfileID }) else { return }
-                                config.userProfiles[index].profiles.removeAll { $0.id == item.id }
-                            }
-                        } label: { Image(systemName: "trash") }.help("Удалить кольцо приложения")
+                        Button(role: .destructive) { pendingDeleteProfile = item }
+                        label: { Image(systemName: "trash") }
+                            .help("Удалить кольцо приложения").accessibilityLabel("Удалить кольцо \(item.name)")
                     }
                 }
                 .padding(18).ringCard()
@@ -448,18 +487,27 @@ struct SettingsView: View {
                         Text("Сочетание клавиш")
                         Spacer()
                         Text(triggerLabel).font(.system(.title3, design: .rounded)).fontWeight(.medium)
-                        Button(capturing ? "Нажмите сочетание…" : "Записать") {
+                        Button(capturing ? "Отменить запись" : "Записать") {
+                            if capturing {
+                                controller.cancelShortcutCapture()
+                                capturing = false
+                                return
+                            }
+                            guard controller.accessibilityGranted && controller.inputMonitoringGranted else {
+                                controller.statusMessage = "Разрешите Универсальный доступ и Мониторинг ввода или выберите клавишу вручную."
+                                return
+                            }
                             capturing = true
                             controller.captureShortcut { key, modifiers in
                                 mutate { $0.trigger.key = key; $0.trigger.modifiers = modifiers }
                                 capturing = false
                             }
-                        }.disabled(capturing)
+                        }
                     }
-                    ModifierSelector(modifiers: triggerBinding(\.modifiers))
+                    ModifierSelector(modifiers: triggerBinding(\.modifiers)).disabled(capturing)
                     Picker("Клавиша", selection: triggerBinding(\.key)) {
                         ForEach(KeyboardKeys.supported, id: \.self) { Text($0).tag($0) }
-                    }
+                    }.disabled(capturing)
                 }
                 Picker("Поведение", selection: triggerBinding(\.mode)) {
                     Text("Повторный вызов закрывает").tag(ActivationMode.toggle)
@@ -499,11 +547,21 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                 Divider()
                 Toggle("Запускать при входе в macOS", isOn: Binding(
-                    get: { store.configuration.preferences.launchAtLogin },
+                    get: { controller.launchAtLoginEnabled },
                     set: { controller.setLaunchAtLogin($0) }))
                 Toggle("Кольцо активно", isOn: $controller.isEnabled)
             }
             .toggleStyle(.switch).padding(22).ringCard()
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Перенос настроек").font(.headline)
+                Text("Сохраните резервную копию или перенесите профили на другой Mac.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Text("Собственные файлы иконок перенесите отдельно.").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                Button("Экспортировать…") { exportConfiguration() }
+                    Button("Импортировать…") { chooseImport() }
+                }.buttonStyle(.bordered)
+            }.padding(22).ringCard()
             permissionCard
         }
     }
@@ -563,9 +621,6 @@ struct SettingsView: View {
                 Link("GitHub", destination: URL(string: "https://github.com/perf769/actions-ring")!)
             }
             .padding(22).ringCard()
-            if let status = controller.statusMessage, !status.isEmpty {
-                Text(status).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
-            }
         }
     }
 
@@ -608,8 +663,52 @@ struct SettingsView: View {
     private func mutate(_ update: (inout RingConfiguration) -> Void) {
         var value = store.configuration
         update(&value)
+        do { try ConfigurationCodec.validate(value) }
+        catch { controller.statusMessage = error.localizedDescription; return }
         store.configuration = value
         controller.saveConfiguration()
+    }
+    private func chooseImport() {
+        let panel = NSOpenPanel()
+        panel.title = "Импорт настроек Actions Ring для Mac"
+        panel.allowedContentTypes = [.json]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pendingImport = url
+    }
+    private func importConfiguration() {
+        guard let url = pendingImport else { return }
+        pendingImport = nil
+        do {
+            try store.importConfiguration(from: url)
+            controller.configurationDidChange()
+            selectedProfileID = nil
+            selectedSlotID = nil
+            search = ""
+            categoryID = "all"
+            controller.statusMessage = "Настройки импортированы."
+        } catch {
+            controller.statusMessage = error.localizedDescription
+        }
+    }
+    private func exportConfiguration() {
+        let panel = NSSavePanel()
+        panel.title = "Экспорт настроек Actions Ring"
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "ActionsRing-macOS.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard url.standardizedFileURL != store.configurationURL.standardizedFileURL,
+              url.standardizedFileURL != store.backupURL.standardizedFileURL else {
+            controller.statusMessage = "Для экспорта выберите файл вне папки текущих настроек."
+            return
+        }
+        do {
+            try store.exportConfiguration(to: url)
+            controller.statusMessage = "Настройки экспортированы."
+        } catch {
+            controller.statusMessage = error.localizedDescription
+        }
     }
     private func changeProfile(id: String? = nil, _ update: (inout RingProfile) -> Void) {
         let targetID = id ?? profile.id
@@ -648,7 +747,7 @@ struct SettingsView: View {
     }
     private func duplicateUser() {
         guard let source = user else { return }
-        let duplicate = UserProfile(name: "\(source.name) — копия", profiles: source.profiles.map { profile in
+        let duplicate = UserProfile(name: "\(String(source.name.prefix(110))) — копия", profiles: source.profiles.map { profile in
             var value = profile
             value.id = UUID().uuidString
             value.slots = profile.slots.map { $0.copyWithNewIDs() }
@@ -691,8 +790,8 @@ enum RingSettingsStyle {
     }
     static func hex(_ color: Color) -> String {
         guard let value = NSColor(color).usingColorSpace(.sRGB) else { return "#FFFFFF" }
-        return String(format: "#%02X%02X%02X", Int((value.redComponent * 255).rounded()),
-                      Int((value.greenComponent * 255).rounded()), Int((value.blueComponent * 255).rounded()))
+        func byte(_ component: CGFloat) -> Int { min(255, max(0, Int((component * 255).rounded()))) }
+        return String(format: "#%02X%02X%02X", byte(value.redComponent), byte(value.greenComponent), byte(value.blueComponent))
     }
 }
 
@@ -713,7 +812,7 @@ struct SearchField: View {
             TextField(placeholder, text: $text).textFieldStyle(.plain)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                    .buttonStyle(.plain).help("Очистить поиск")
+                    .buttonStyle(.plain).help("Очистить поиск").accessibilityLabel("Очистить поиск")
             }
         }
         .padding(10).background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))

@@ -34,6 +34,7 @@ struct SettingsRingPreview: View {
                     }
                     .buttonStyle(.plain).help(slot.label)
                     .accessibilityLabel(slot.label)
+                    .accessibilityValue(selectedSlotID == slot.id ? "Выбран" : "Не выбран")
                     .position(x: center.x + CGFloat(cos(angle)) * radius, y: center.y + CGFloat(sin(angle)) * radius)
                 }
                 Button { select(nil) } label: {
@@ -41,7 +42,7 @@ struct SettingsRingPreview: View {
                         .foregroundStyle(.secondary).frame(width: 32, height: 32)
                         .background(RingSettingsStyle.card, in: Circle()).shadow(color: .black.opacity(0.08), radius: 4, y: 1)
                 }
-                .buttonStyle(.plain).help("Снять выделение").position(center)
+                .buttonStyle(.plain).help("Снять выделение").accessibilityLabel("Снять выделение").position(center)
             }
         }
         .frame(minHeight: 230)
