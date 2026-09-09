@@ -8,12 +8,15 @@ final class RingPanelController {
     private(set) var panel: NSPanel?
     private(set) var isVisible = false
     private var content: RingCanvasView?
+    private var fadeTimer: Timer?
     private var generation = 0
     private var preferences = AppPreferences()
 
     func show(profile: RingProfile, preferences: AppPreferences) {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         generation += 1
+        fadeTimer?.invalidate()
+        fadeTimer = nil
         self.preferences = preferences
         if panel == nil {
             let window = RingOverlayPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel],
@@ -63,20 +66,26 @@ final class RingPanelController {
             panel?.orderOut(nil)
             return
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.13
-            panel.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
+        let started = ProcessInfo.processInfo.systemUptime
+        fadeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
             Task { @MainActor in
-                guard let self, self.generation == closingGeneration, !self.isVisible else { return }
-                self.panel?.orderOut(nil)
-                self.panel?.alphaValue = 1
+                guard let self, self.generation == closingGeneration, !self.isVisible else { timer.invalidate(); return }
+                let amount = min(1, (ProcessInfo.processInfo.systemUptime - started) / 0.13)
+                panel.alphaValue = 1 - amount
+                if amount >= 1 {
+                    timer.invalidate()
+                    self.fadeTimer = nil
+                    panel.orderOut(nil)
+                    panel.alphaValue = 1
+                }
             }
         }
+        if let fadeTimer { RunLoop.main.add(fadeTimer, forMode: .common) }
     }
 
     func commit(holdRelease: Bool) {
         guard isVisible else { return }
+        content?.refreshPointer()
         content?.commit(holdRelease: holdRelease)
     }
 
@@ -88,6 +97,8 @@ final class RingPanelController {
         guard let action else { hide(); return }
         // Actions such as screenshots must run after every pixel of the ring has disappeared.
         generation += 1
+        fadeTimer?.invalidate()
+        fadeTimer = nil
         isVisible = false
         content?.stopAnimating()
         panel?.orderOut(nil)
@@ -162,7 +173,10 @@ private final class RingCanvasView: NSView {
 
     func startAnimating() {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.needsDisplay = true }
+            Task { @MainActor in
+                self?.refreshPointer()
+                self?.needsDisplay = true
+            }
         }
         if let timer { RunLoop.main.add(timer, forMode: .common) }
     }
@@ -171,12 +185,15 @@ private final class RingCanvasView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.activeAlways, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited], owner: self, userInfo: nil)
+        let area = NSTrackingArea(rect: .zero, options: [.activeAlways, .inVisibleRect, .mouseMoved, .mouseEnteredAndExited, .enabledDuringMouseDrag], owner: self, userInfo: nil)
         addTrackingArea(area)
         tracking = area
     }
 
     override func mouseMoved(with event: NSEvent) { updateHover(convert(event.locationInWindow, from: nil)) }
+    override func mouseDragged(with event: NSEvent) { updateHover(convert(event.locationInWindow, from: nil)) }
+    override func rightMouseDragged(with event: NSEvent) { updateHover(convert(event.locationInWindow, from: nil)) }
+    override func otherMouseDragged(with event: NSEvent) { updateHover(convert(event.locationInWindow, from: nil)) }
     override func mouseEntered(with event: NSEvent) { updateHover(convert(event.locationInWindow, from: nil)) }
     override func mouseExited(with event: NSEvent) { hoveredPath = nil; closeHovered = false; needsDisplay = true }
     override func mouseDown(with event: NSEvent) {
@@ -184,6 +201,13 @@ private final class RingCanvasView: NSView {
         commit(holdRelease: false)
     }
     override func rightMouseDown(with event: NSEvent) { onDismiss?() }
+
+    func refreshPointer() {
+        guard let window, window.isVisible else { return }
+        // A held trigger's down event is suppressed globally. The originating app can therefore
+        // retain drag routing; polling the public cursor position keeps hover correct in that case.
+        updateHover(convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil))
+    }
 
     func previewSubmenu(at index: Int) {
         guard profile.slots.indices.contains(index), profile.slots[index].hasSubmenu else { return }
@@ -469,7 +493,7 @@ private final class RingCanvasView: NSView {
             element.setAccessibilityLabel(node.slot.label)
             element.setAccessibilityParent(self)
             element.setAccessibilityFrame(window.convertToScreen(convert(node.layout.frame, to: nil)))
-            element.perform = { [weak self] in
+            element.pressHandler = { [weak self] in
                 guard let self else { return }
                 self.hoveredPath = node.path
                 self.closeHovered = false
@@ -484,15 +508,15 @@ private final class RingCanvasView: NSView {
         let radius = rootLayout.closeRadius
         let frame = CGRect(x: rootLayout.center.x - radius, y: rootLayout.center.y - radius, width: radius * 2, height: radius * 2)
         close.setAccessibilityFrame(window.convertToScreen(convert(frame, to: nil)))
-        close.perform = { [weak self] in self?.onDismiss?() }
+        close.pressHandler = { [weak self] in self?.onDismiss?() }
         children.append(close)
         setAccessibilityChildren(children)
     }
 }
 
 private final class RingAccessibleButton: NSAccessibilityElement {
-    var perform: (() -> Void)?
-    override func accessibilityPerformPress() -> Bool { perform?(); return true }
+    var pressHandler: (() -> Void)?
+    override func accessibilityPerformPress() -> Bool { pressHandler?(); return true }
 }
 
 private extension NSColor {

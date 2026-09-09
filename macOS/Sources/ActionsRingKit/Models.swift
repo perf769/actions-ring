@@ -275,10 +275,16 @@ public struct RingConfiguration: Codable, Equatable, Sendable {
 }
 
 public enum KeyboardKeys {
-    public static let supported: [String] = (65...90).compactMap { UnicodeScalar($0).map(String.init) }
-        + (0...9).map(String.init)
-        + (1...20).map { "F\($0)" }
-        + ["Space", "Tab", "Return", "Escape", "Delete", "ForwardDelete", "Home", "End",
-           "PageUp", "PageDown", "Left", "Right", "Up", "Down", "Minus", "Equal", "LeftBracket",
-           "RightBracket", "Backslash", "Semicolon", "Quote", "Comma", "Period", "Slash", "Grave"]
+    private static let letters: [String] = (65...90).compactMap { code -> String? in
+        guard let scalar = UnicodeScalar(code) else { return nil }
+        return String(scalar)
+    }
+    private static let digits: [String] = (0...9).map { String($0) }
+    private static let functionKeys: [String] = (1...20).map { "F\($0)" }
+    private static let namedKeys: [String] = [
+        "Space", "Tab", "Return", "Escape", "Delete", "ForwardDelete", "Home", "End",
+        "PageUp", "PageDown", "Left", "Right", "Up", "Down", "Minus", "Equal", "LeftBracket",
+        "RightBracket", "Backslash", "Semicolon", "Quote", "Comma", "Period", "Slash", "Grave",
+    ]
+    public static let supported: [String] = letters + digits + functionKeys + namedKeys
 }
