@@ -30,12 +30,14 @@ final class RingGeometryTests: XCTestCase {
                     for node in nodes {
                         XCTAssertTrue(bounds.contains(node.frame), "\(cursor), \(parent.index), \(count): \(node)")
                         for obstacle in obstacles {
-                            XCTAssertGreaterThan(hypot(node.center.x - obstacle.center.x, node.center.y - obstacle.center.y), node.radius + obstacle.radius)
+                            let distance = Double(hypot(node.center.x - obstacle.center.x, node.center.y - obstacle.center.y))
+                            XCTAssertGreaterThan(distance, node.radius + obstacle.radius)
                         }
                     }
                     for (index, node) in nodes.enumerated() {
                         for other in nodes.dropFirst(index + 1) {
-                            XCTAssertGreaterThan(hypot(node.center.x - other.center.x, node.center.y - other.center.y), node.radius + other.radius)
+                            let distance = Double(hypot(node.center.x - other.center.x, node.center.y - other.center.y))
+                            XCTAssertGreaterThan(distance, node.radius + other.radius)
                         }
                     }
                 }

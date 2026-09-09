@@ -190,7 +190,7 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Image(systemName: "circle.hexagongrid").font(.title2).foregroundStyle(RingSettingsStyle.accent)
+                applicationLogo(size: 26)
                 Text("Actions Ring").font(.headline)
             }
             .padding(.vertical, 22)
@@ -590,8 +590,7 @@ struct SettingsView: View {
     private var aboutPage: some View {
         settingsScroll(title: "О программе", subtitle: "Версия и данные приложения.") {
             HStack(spacing: 20) {
-                Image(systemName: "circle.hexagongrid").font(.system(size: 42)).foregroundStyle(RingSettingsStyle.accent)
-                    .frame(width: 78, height: 78).background(RingSettingsStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 23))
+                applicationLogo(size: 78)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Actions Ring").font(.title).fontWeight(.semibold)
                     Text("Быстрое контекстное кольцо действий").foregroundStyle(.secondary)
@@ -609,6 +608,16 @@ struct SettingsView: View {
                 Text("Новые версии Actions Ring для Mac доступны на странице выпусков.")
                     .foregroundStyle(.secondary)
                 Button("Проверить обновления") { controller.checkForUpdates() }.buttonStyle(.borderedProminent)
+            }
+            .padding(22).ringCard()
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Обратная связь").font(.headline)
+                Text("Откроется черновик обращения на GitHub с версиями программы и macOS. Журналы и настройки не прикрепляются.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button { controller.reportBug() } label: {
+                    Label("Сообщить об ошибке", systemImage: "ladybug")
+                }
+                .buttonStyle(.bordered)
             }
             .padding(22).ringCard()
             HStack {
@@ -635,6 +644,19 @@ struct SettingsView: View {
             }
             .padding(32).frame(maxWidth: 960, alignment: .leading).frame(maxWidth: .infinity)
         }
+    }
+
+    private func applicationLogo(size: CGFloat) -> some View {
+        Group {
+            if let image = NSApp.applicationIconImage {
+                Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+            } else {
+                Image(systemName: "circle.hexagongrid").resizable().scaledToFit()
+                    .foregroundStyle(RingSettingsStyle.accent).padding(size * 0.15)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 
     private var activeUserBinding: Binding<String> {

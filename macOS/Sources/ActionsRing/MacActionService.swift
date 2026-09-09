@@ -85,7 +85,7 @@ final class MacActionService {
         guard MacInputService.accessibilityGranted else { throw MacActionError.permissionRequired }
         guard let target, !target.isTerminated else { throw MacActionError.targetUnavailable }
         if NSWorkspace.shared.frontmostApplication?.processIdentifier != target.processIdentifier {
-            guard target.activate(options: [.activateIgnoringOtherApps]) else { throw MacActionError.targetUnavailable }
+            guard target.activate() else { throw MacActionError.targetUnavailable }
             for _ in 0..<25 {
                 if NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier { break }
                 try await Task.sleep(nanoseconds: 12_000_000)

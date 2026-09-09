@@ -62,6 +62,26 @@ private enum MacVisualSmoke {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = try ConfigurationStore(directory: directory.appendingPathComponent("isolated-settings"))
         let controller = AppController(store: store, enableRuntime: false)
+        let original = store.configuration
+        let originalData = try Data(contentsOf: store.configurationURL)
+        store.configuration.trigger.mouseButton = 100
+        controller.saveConfiguration()
+        guard store.configuration == original, try Data(contentsOf: store.configurationURL) == originalData else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        var imported = original
+        imported.userProfiles[0].name = "Работа"
+        let importURL = directory.appendingPathComponent("import-check.json")
+        try ConfigurationCodec.encode(imported).write(to: importURL, options: .atomic)
+        try store.importConfiguration(from: importURL)
+        let backupBeforeApply = try Data(contentsOf: store.backupURL)
+        controller.configurationDidChange()
+        guard store.configuration == imported, try Data(contentsOf: store.backupURL) == backupBeforeApply,
+              backupBeforeApply == originalData else { throw CocoaError(.coderInvalidValue) }
+        try store.restoreBackup()
+        controller.configurationDidChange()
+        controller.statusMessage = nil
+        print("MACOS_SETTINGS_TRANSACTION_OK")
         for dark in [false, true] {
             NSApp.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             for section in SettingsSection.allCases {

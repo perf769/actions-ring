@@ -404,9 +404,9 @@ private final class RingCanvasView: NSView {
                 tinted = NSImage(size: size)
                 tinted.lockFocusFlipped(true)
                 let rect = CGRect(origin: .zero, size: size)
-                image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                image.draw(in: fittedImageRect(image.size, inside: rect), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
                 ink.setFill()
-                NSRectFillUsingOperation(rect, .sourceAtop)
+                rect.fill(using: NSCompositingOperation.sourceAtop)
                 tinted.unlockFocus()
                 imageCache[key] = tinted
             }
@@ -420,8 +420,16 @@ private final class RingCanvasView: NSView {
             }
             (bright ? NSColor(white: 0.16, alpha: 0.95) : NSColor(white: 1, alpha: 0.94)).setFill()
             NSBezierPath(roundedRect: frame.insetBy(dx: -3, dy: -3), xRadius: 7, yRadius: 7).fill()
-            image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            image.draw(in: fittedImageRect(image.size, inside: frame), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
+    }
+
+    private func fittedImageRect(_ size: CGSize, inside frame: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0 else { return frame }
+        let factor: CGFloat = min(frame.width / size.width, frame.height / size.height)
+        let width: CGFloat = size.width * factor
+        let height: CGFloat = size.height * factor
+        return CGRect(x: frame.midX - width / 2, y: frame.midY - height / 2, width: width, height: height)
     }
 
     private func isBright(_ image: NSImage) -> Bool {

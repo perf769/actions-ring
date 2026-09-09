@@ -182,10 +182,18 @@ final class AppController: NSObject, ObservableObject {
             return
         }
         invalidateInteraction()
-        input.captureShortcut(completion: completion)
+        input.captureShortcut { [weak self] key, modifiers in
+            completion(key, modifiers)
+            // Capture can temporarily create a tap while the ring is paused.
+            // Restore the configured runtime state after Quartz finishes this up.
+            DispatchQueue.main.async { self?.updateInput() }
+        }
     }
 
-    func cancelShortcutCapture() { input.cancelCapture() }
+    func cancelShortcutCapture() {
+        input.cancelCapture()
+        updateInput()
+    }
 
     func setLaunchAtLogin(_ enabled: Bool) {
         guard runtimeEnabled else { return }
@@ -210,6 +218,14 @@ final class AppController: NSObject, ObservableObject {
     }
 
     func revealSettingsFolder() { NSWorkspace.shared.activateFileViewerSelecting([store.configurationURL]) }
+
+    func reportBug() {
+        let system = ProcessInfo.processInfo.operatingSystemVersionString + " · arm64"
+        guard let url = BugReport.url(version: version, system: system), NSWorkspace.shared.open(url) else {
+            statusMessage = "Не удалось открыть браузер. Сообщить об ошибке можно в разделе Issues на github.com/perf769/actions-ring."
+            return
+        }
+    }
 
     func checkForUpdates() {
         statusMessage = "Проверяем обновления…"
@@ -350,7 +366,10 @@ final class AppController: NSObject, ObservableObject {
     }
 
     @objc private func menuSettings() { openSettings() }
-    @objc private func menuRing() { showRingPreview() }
+    @objc private func menuRing() {
+        let target = NSWorkspace.shared.frontmostApplication
+        DispatchQueue.main.async { [weak self] in self?.handleTrigger(frontmost: target) }
+    }
     @objc private func menuToggle() { isEnabled.toggle() }
     @objc private func menuQuit() { NSApp.terminate(nil) }
     @objc private func menuProfile(_ sender: NSMenuItem) {
