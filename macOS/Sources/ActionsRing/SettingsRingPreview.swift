@@ -3,15 +3,21 @@ import ActionsRingKit
 
 @MainActor
 struct SettingsRingPreview: View {
+    @State private var dropTargetID: String?
     var profile: RingProfile
     var selectedSlotID: String?
+    var dragOwner: SlotReorderOwner
     var select: (RingSlot?) -> Void
+    var reorder: (SlotReorderPayload, String) -> Bool
 
     var body: some View {
         GeometryReader { geometry in
             content(in: geometry.size)
         }
         .frame(minHeight: 230)
+        .onChange(of: dragOwner) { _, _ in dropTargetID = nil }
+        .onChange(of: profile.slots.map(\.id)) { _, _ in dropTargetID = nil }
+        .onDisappear { dropTargetID = nil }
     }
 
     private func content(in size: CGSize) -> some View {
@@ -30,8 +36,20 @@ struct SettingsRingPreview: View {
         let palette: RingPalette = slot.colors?.resolving(profile.effectivePalette) ?? profile.effectivePalette
         let position: CGPoint = layout.position(index: index, count: profile.slots.count)
         return SettingsPreviewBubble(slot: slot, palette: palette,
-                                     isSelected: selectedSlotID == slot.id, diameter: layout.bubbleDiameter) {
+                                     isSelected: selectedSlotID == slot.id, isDropTarget: dropTargetID == slot.id,
+                                     diameter: layout.bubbleDiameter) {
             select(slot)
+        }
+        .draggable(SlotDragTransfer(payload: SlotReorderPayload(owner: dragOwner, sourceSlotID: slot.id, slots: profile.slots)))
+        .dropDestination(for: SlotDragTransfer.self) { items, _ in
+            defer { dropTargetID = nil }
+            guard items.count == 1, let transfer = items.first else { return false }
+            var slots = profile.slots
+            guard SlotReordering.swap(&slots, using: transfer.payload, owner: dragOwner, targetSlotID: slot.id) else { return false }
+            return reorder(transfer.payload, slot.id)
+        } isTargeted: { targeted in
+            if targeted { dropTargetID = slot.id }
+            else if dropTargetID == slot.id { dropTargetID = nil }
         }
         .position(position)
     }
@@ -79,6 +97,7 @@ private struct SettingsPreviewBubble: View {
     var slot: RingSlot
     var palette: RingPalette
     var isSelected: Bool
+    var isDropTarget: Bool
     var diameter: CGFloat
     var onSelect: () -> Void
 
@@ -93,7 +112,7 @@ private struct SettingsPreviewBubble: View {
             }
         }
         .buttonStyle(.plain)
-        .help(slot.label)
+        .help("\(slot.label) — перетащите на другой пузырь, чтобы поменять их местами")
         .accessibilityLabel(slot.label)
         .accessibilityValue(isSelected ? "Выбран" : "Не выбран")
     }
@@ -103,6 +122,7 @@ private struct SettingsPreviewBubble: View {
             .frame(width: diameter, height: diameter)
             .background(backgroundColor, in: Circle())
             .overlay(Circle().stroke(outlineColor, lineWidth: 3))
+            .overlay(Circle().inset(by: -5).stroke(isDropTarget ? RingSettingsStyle.accent : Color.clear, style: StrokeStyle(lineWidth: 2, dash: [4, 3])))
             .shadow(color: Color.black.opacity(0.12), radius: 5, y: 2)
     }
 

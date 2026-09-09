@@ -6,12 +6,18 @@
     <key>CFBundleDisplayName</key><string>Actions Ring</string>
     <key>CFBundleExecutable</key><string>ActionsRing</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>UTExportedTypeDeclarations</key>
+    <array><dict>
+        <key>UTTypeIdentifier</key><string>com.actionsring.slot-position</string>
+        <key>UTTypeDescription</key><string>Actions Ring bubble position</string>
+        <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+    </dict></array>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHumanReadableCopyright</key><string>Actions Ring</string>
 </dict></plist>

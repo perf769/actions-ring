@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var section: SettingsSection
     @State private var selectedProfileID: String?
     @State private var selectedSlotID: String?
+    @State private var ringDragSessionID = UUID()
     @State private var editingSlot: RingSlot?
     @State private var editingAction: RingAction?
     @State private var showingApplications = false
@@ -60,6 +61,9 @@ struct SettingsView: View {
             ?? user?.profiles.first ?? RingProfile(slots: ActionCatalog.defaultSlots())
     }
     private var selectedSlot: RingSlot? { profile.slots.first { $0.id == selectedSlotID } }
+    private var ringDragOwner: SlotReorderOwner {
+        SlotReorderOwner(sessionID: ringDragSessionID, containerID: profile.id)
+    }
     private var categories: [ActionCategory] { ActionCatalog.categories(for: profile.bundleIdentifier) }
 
     var body: some View {
@@ -160,23 +164,26 @@ struct SettingsView: View {
                 Text("Все профили на этом Mac будут заменены. Текущие настройки сохранятся в резервной копии.")
             }
         .onChange(of: store.configuration.activeUserProfileID) { _, _ in
+            ringDragSessionID = UUID()
             selectedProfileID = nil
             selectedSlotID = nil
             search = ""
             categoryID = "all"
         }
         .onChange(of: selectedProfileID) { _, _ in
+            ringDragSessionID = UUID()
             selectedSlotID = nil
             search = ""
             categoryID = "all"
         }
         .onChange(of: section) { _, _ in
+            ringDragSessionID = UUID()
             if capturing { controller.cancelShortcutCapture(); capturing = false }
         }
         .onChange(of: store.configuration.trigger.device) { _, _ in
             if capturing { controller.cancelShortcutCapture(); capturing = false }
         }
-        .onDisappear { controller.cancelShortcutCapture() }
+        .onDisappear { ringDragSessionID = UUID(); controller.cancelShortcutCapture() }
     }
 
     private var colorScheme: ColorScheme? {
@@ -271,7 +278,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         Text("Настройте своё кольцо").font(.system(size: 25, weight: .semibold))
-                        Text("Выберите пузырь, затем назначьте действие из библиотеки.").font(.callout).foregroundStyle(.secondary)
+                        Text("Выберите пузырь для настройки. Перетащите на другой, чтобы поменять их местами.").font(.callout).foregroundStyle(.secondary)
                         ViewThatFits(in: .horizontal) {
                             HStack { ringThemePicker; Spacer(minLength: 0); ringToolbarButtons }
                             VStack(alignment: .trailing, spacing: 10) {
@@ -279,9 +286,10 @@ struct SettingsView: View {
                                 HStack { Spacer(minLength: 0); ringToolbarButtons }
                             }
                         }
-                        SettingsRingPreview(profile: profile, selectedSlotID: selectedSlotID) { slot in
+                        SettingsRingPreview(profile: profile, selectedSlotID: selectedSlotID, dragOwner: ringDragOwner, select: { slot in
                             selectedSlotID = selectedSlotID == slot?.id ? nil : slot?.id
-                        }
+                        }, reorder: reorderRootSlots)
+                        .id([user?.id ?? "", profile.id])
                         .frame(height: 280)
                         if profile.theme == .custom {
                             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
@@ -739,6 +747,22 @@ struct SettingsView: View {
                   let profileIndex = config.userProfiles[userIndex].profiles.firstIndex(where: { $0.id == targetID }) else { return }
             update(&config.userProfiles[userIndex].profiles[profileIndex])
         }
+    }
+    private func reorderRootSlots(_ payload: SlotReorderPayload, targetSlotID: String) -> Bool {
+        // Re-resolve the current profile at commit time; never write a drag's old
+        // snapshot over a newer edit or a different profile.
+        var configuration = store.configuration
+        guard let userIndex = configuration.userProfiles.firstIndex(where: { $0.id == configuration.activeUserProfileID }),
+              let profileIndex = configuration.userProfiles[userIndex].profiles.firstIndex(where: { $0.id == profile.id }),
+              payload.owner.containerID == profile.id else { return false }
+        guard SlotReordering.swap(&configuration.userProfiles[userIndex].profiles[profileIndex].slots,
+                                  using: payload, owner: ringDragOwner, targetSlotID: targetSlotID) else { return false }
+        do { try ConfigurationCodec.validate(configuration) }
+        catch { controller.statusMessage = error.localizedDescription; return false }
+        store.configuration = configuration
+        guard controller.saveConfiguration() else { return false }
+        selectedSlotID = payload.sourceSlotID
+        return true
     }
     private func assign(_ action: RingAction) {
         guard let id = selectedSlotID else { return }

@@ -159,6 +159,9 @@ struct SlotEditorView: View {
     @State private var editingChild: RingSlot?
     @State private var showingRemoveSubmenu = false
     @State private var pendingChildRemoval: RingSlot?
+    @State private var childDragSessionID = UUID()
+    @State private var childDropTargetID: String?
+    @State private var selectedChildID: String?
     @State private var error: String?
     var bundleIdentifier: String?
     var palette: RingPalette
@@ -166,6 +169,10 @@ struct SlotEditorView: View {
     var captureShortcut: SettingsShortcutCapture
     var cancelShortcutCapture: () -> Void
     var onSave: (RingSlot) -> Void
+
+    private var childDragOwner: SlotReorderOwner {
+        SlotReorderOwner(sessionID: childDragSessionID, containerID: draft.id)
+    }
 
     init(slot: RingSlot, bundleIdentifier: String?, palette: RingPalette, depth: Int = 0,
          captureShortcut: @escaping SettingsShortcutCapture, cancelShortcutCapture: @escaping () -> Void = {},
@@ -207,6 +214,11 @@ struct SlotEditorView: View {
         .frame(width: 620, height: 700)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(RingSettingsStyle.accent)
+        .onChange(of: draft.submenu?.map(\.id)) { _, _ in childDropTargetID = nil }
+        .onDisappear {
+            childDropTargetID = nil
+            childDragSessionID = UUID()
+        }
         .sheet(isPresented: $showingLibrary) {
             ActionLibraryView(bundleIdentifier: bundleIdentifier, captureShortcut: captureShortcut,
                               cancelShortcutCapture: cancelShortcutCapture) { action in
@@ -280,30 +292,60 @@ struct SlotEditorView: View {
                 }
             }
             if let children = draft.submenu, !children.isEmpty {
+                Text("Перетащите пузырь на другой, чтобы поменять их местами.")
+                    .font(.caption).foregroundStyle(.secondary)
                 ForEach(children) { child in
-                    HStack(spacing: 10) {
-                        SlotIconImage(icon: child.effectiveIcon, size: 25, foreground: .primary)
-                        Button { editingChild = child } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(child.label).fontWeight(.medium)
-                                if child.hasSubmenu { Text("Подменю: \(child.submenu?.count ?? 0)").font(.caption).foregroundStyle(.secondary) }
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.buttonStyle(.plain)
-                        Button { editingChild = child } label: { Image(systemName: "pencil") }
-                            .help("Настроить пузырь").accessibilityLabel("Настроить \(child.label)")
-                        Button {
-                            if child.action != nil || child.hasSubmenu { pendingChildRemoval = child }
-                            else { draft.submenu?.removeAll { $0.id == child.id } }
-                        } label: { Image(systemName: "minus.circle") }
-                            .help("Удалить пузырь").accessibilityLabel("Удалить \(child.label)")
-                    }
-                    .padding(9).background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 9))
+                    submenuRow(child, children: children)
                 }
                 Button { draft.submenu?.append(RingSlot()) } label: { Label("Добавить пузырь", systemImage: "plus") }
                     .disabled(children.count >= 9)
             }
         }
         .padding(16).ringCard()
+    }
+
+    private func submenuRow(_ child: RingSlot, children: [RingSlot]) -> some View {
+        HStack(spacing: 10) {
+            SlotIconImage(icon: child.effectiveIcon, size: 25, foreground: .primary)
+            Button { selectedChildID = child.id; editingChild = child } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(child.label).fontWeight(.medium)
+                    if child.hasSubmenu { Text("Подменю: \(child.submenu?.count ?? 0)").font(.caption).foregroundStyle(.secondary) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.buttonStyle(.plain)
+            Button { selectedChildID = child.id; editingChild = child } label: { Image(systemName: "pencil") }
+                .help("Настроить пузырь").accessibilityLabel("Настроить \(child.label)")
+            Button {
+                if child.action != nil || child.hasSubmenu { pendingChildRemoval = child }
+                else { draft.submenu?.removeAll { $0.id == child.id } }
+            } label: { Image(systemName: "minus.circle") }
+                .help("Удалить пузырь").accessibilityLabel("Удалить \(child.label)")
+        }
+        .padding(9)
+        .background(selectedChildID == child.id ? RingSettingsStyle.accent.opacity(0.10) : Color.secondary.opacity(0.055),
+                    in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9)
+            .stroke(childDropTargetID == child.id ? RingSettingsStyle.accent : Color.clear,
+                    style: StrokeStyle(lineWidth: 2, dash: [4, 3])))
+        .contentShape(RoundedRectangle(cornerRadius: 9))
+        .draggable(SlotDragTransfer(payload: SlotReorderPayload(owner: childDragOwner, sourceSlotID: child.id, slots: children)))
+        .dropDestination(for: SlotDragTransfer.self) { items, _ in
+            reorderChild(items, targetSlotID: child.id)
+        } isTargeted: { targeted in
+            if targeted { childDropTargetID = child.id }
+            else if childDropTargetID == child.id { childDropTargetID = nil }
+        }
+        .help("Перетащите на другой пузырь подменю, чтобы поменять их местами")
+    }
+
+    private func reorderChild(_ items: [SlotDragTransfer], targetSlotID: String) -> Bool {
+        defer { childDropTargetID = nil }
+        guard items.count == 1, let transfer = items.first, var children = draft.submenu,
+              SlotReordering.swap(&children, using: transfer.payload,
+                                  owner: childDragOwner, targetSlotID: targetSlotID) else { return false }
+        draft.submenu = children
+        selectedChildID = transfer.payload.sourceSlotID
+        return true
     }
 
     private var colorsCard: some View {

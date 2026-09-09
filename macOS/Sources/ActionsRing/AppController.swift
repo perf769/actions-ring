@@ -13,7 +13,7 @@ final class AppController: NSObject, ObservableObject {
     @Published private(set) var isInputReady = false
     @Published private(set) var launchAtLoginEnabled = false
     @Published var statusMessage: String?
-    var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0" }
+    var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0" }
     private let input = MacInputService()
     private let actions = MacActionService()
     let ring = RingPanelController()
@@ -155,7 +155,8 @@ final class AppController: NSObject, ObservableObject {
         ring.show(profile: chosen, preferences: store.configuration.preferences)
     }
 
-    func saveConfiguration() {
+    @discardableResult
+    func saveConfiguration() -> Bool {
         do {
             try store.save()
             lastSavedConfiguration = store.configuration
@@ -163,12 +164,14 @@ final class AppController: NSObject, ObservableObject {
             applyAppearance()
             if lastBinding != store.configuration.trigger { updateInput() }
             rebuildMenu()
+            return true
         } catch {
             // Roll back only memory. The store refuses to replace externally edited
             // files, and no second write is attempted after a failed transaction.
             store.configuration = lastSavedConfiguration
             applyAppearance()
             statusMessage = error.localizedDescription
+            return false
         }
     }
 
