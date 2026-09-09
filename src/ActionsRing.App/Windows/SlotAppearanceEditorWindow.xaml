@@ -1,6 +1,7 @@
 <Window x:Class="ActionsRing.App.Windows.SlotAppearanceEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ActionsRing.App.Controls"
         Title="Цвета пузыря"
         Width="700"
         Height="640"
@@ -97,16 +98,13 @@
                         <TextBlock Text="Обычный" Style="{StaticResource CaptionText}" Margin="0,18,0,8" />
                         <Border x:Name="RestBubble" Width="96" Height="96" CornerRadius="48" HorizontalAlignment="Center">
                             <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="4" Opacity="0.22" Color="Black" /></Border.Effect>
-                            <TextBlock x:Name="RestIcon" Text="&#xE8C8;" FontFamily="{DynamicResource IconFont}" FontSize="34"
+                            <controls:ActionIconView x:Name="RestIcon" Width="40" Height="40"
                                        HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <TextBlock Text="При наведении" Style="{StaticResource CaptionText}" Margin="0,22,0,8" />
-                        <Border x:Name="HoverBubble" Width="168" Height="64" CornerRadius="32" HorizontalAlignment="Center">
+                        <Border x:Name="HoverBubble" Width="96" Height="96" CornerRadius="48" HorizontalAlignment="Center">
                             <Border.Effect><DropShadowEffect BlurRadius="20" ShadowDepth="5" Opacity="0.25" Color="Black" /></Border.Effect>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock x:Name="HoverIcon" Text="&#xE8C8;" FontFamily="{DynamicResource IconFont}" FontSize="28" />
-                                <TextBlock x:Name="HoverLabel" Text="Копировать" Margin="10,0,0,0" FontWeight="SemiBold" />
-                            </StackPanel>
+                            <controls:ActionIconView x:Name="HoverIcon" Width="40" Height="40" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <Button Content="Использовать цвета темы" Style="{StaticResource SecondaryButton}"
                                 Margin="0,28,0,0" Click="OnReset" />

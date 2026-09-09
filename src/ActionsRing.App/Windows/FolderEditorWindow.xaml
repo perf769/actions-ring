@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Настройка папки"
         Width="520"
-        Height="390"
+        Height="650"
         MinWidth="480"
         MinHeight="360"
         WindowStartupLocation="CenterOwner"
@@ -45,6 +45,26 @@
                     </Grid>
                     <Slider x:Name="SlotCountSlider" Minimum="1" Maximum="9" TickFrequency="1" IsSnapToTickEnabled="True"
                             Margin="0,14,0,0" ValueChanged="OnSlotCountChanged" />
+
+                    <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,20,0,18" />
+                    <TextBlock Text="Действие по клику" FontWeight="SemiBold" />
+                    <TextBlock Text="Наведите курсор, чтобы раскрыть подменю. Нажмите на пузырь, чтобы выполнить назначенное действие."
+                               Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,5,0,12" />
+                    <TextBlock x:Name="ClickActionName" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="ClickActionDescription" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,3,0,10" />
+                    <Grid>
+                        <ComboBox x:Name="ClickActionChoice" DisplayMemberPath="Label" TextSearch.TextPath="Title"
+                                  SelectionChanged="OnClickActionChoiceChanged"
+                                  MaxDropDownHeight="300" ToolTip="Выберите действие для назначения" />
+                        <TextBlock x:Name="ClickActionPlaceholder" Text="Выберите действие…" Style="{StaticResource CaptionText}"
+                                   IsHitTestVisible="False" VerticalAlignment="Center" Margin="16,0,36,0" />
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                        <Button x:Name="RemoveClickActionButton" Content="Убрать действие" Style="{StaticResource SecondaryButton}"
+                                Click="OnRemoveClickAction" />
+                        <Button x:Name="ConfigureClickActionButton" Content="Настроить" Style="{StaticResource SecondaryButton}"
+                                Click="OnConfigureClickAction" Margin="8,0,0,0" />
+                    </StackPanel>
                 </StackPanel>
             </Border>
         </ScrollViewer>

@@ -175,7 +175,7 @@ public partial class RingOverlayWindow : Window
     {
         var hovered = Ring.HoveredSlot;
         var targetWindow = _actionTargetWindow;
-        if (hovered?.Submenu is not null)
+        if (hovered?.Submenu is not null && hovered.Action is not { Kind: not ActionKind.None })
         {
             Ring.OpenSubmenu(hovered, animate: true);
             return;
@@ -183,7 +183,7 @@ public partial class RingOverlayWindow : Window
         if (hovered?.Action is { Kind: not ActionKind.None })
         {
             var wasClosed = await HideAnimatedAsync();
-            if (wasClosed && hovered.Action.Kind != ActionKind.AdjustParameter)
+            if (wasClosed && (hovered.Action.Kind != ActionKind.AdjustParameter || hovered.Submenu is not null))
             {
                 ActionRequested?.Invoke(this, new OverlayActionEventArgs(hovered, targetWindow, _isPreview));
             }
@@ -206,15 +206,11 @@ public partial class RingOverlayWindow : Window
 
     private async void OnSlotInvoked(object? sender, RingSlotEventArgs args)
     {
-        if (args.Slot.Submenu is not null)
-        {
-            return;
-        }
         if (args.Slot.Action is not { Kind: not ActionKind.None })
         {
             return;
         }
-        if (args.Slot.Action.Kind == ActionKind.AdjustParameter)
+        if (args.Slot.Action.Kind == ActionKind.AdjustParameter && args.Slot.Submenu is null)
         {
             return;
         }

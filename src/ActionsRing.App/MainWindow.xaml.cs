@@ -39,6 +39,7 @@ public partial class MainWindow : Window
     private Point _dragStart;
     private string _selectedProfileId = string.Empty;
     private RingSlotDefinition? _selectedSlot;
+    private bool _refreshingEditor;
     private int _onboardingStep = 1;
     private bool _refreshing = true;
     private bool _allowClose;
@@ -56,7 +57,7 @@ public partial class MainWindow : Window
         _selectedProfileId = _controller.Configuration.GetActiveUserProfile().GlobalProfile.Id;
 
         RingEditor.InteractionMode = RingInteractionMode.Configure;
-        RingEditor.SlotInvoked += OnEditorSlotInvoked;
+        RingEditor.SelectionChanged += OnEditorSelectionChanged;
         RingEditor.SlotDropRequested += OnEditorSlotDropRequested;
         _controller.ConfigurationChanged += (_, _) => Dispatcher.Invoke(() =>
         {
@@ -184,7 +185,7 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RefreshAll();
-        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.1.0"}";
+        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.2.0"}";
         if (!_controller.Configuration.Onboarding.IsCompleted)
         {
             ShowOnboarding(1);
@@ -252,6 +253,7 @@ public partial class MainWindow : Window
         PreviewRingButton.Content = compact ? "▶" : "Проверить";
         PreviewRingButton.MinWidth = compact ? 40 : 0;
         SlotAppearanceButton.Content = compact ? "●" : "Цвета";
+        SlotIconButton.Content = compact ? "◇" : "Иконка";
         EditSlotButton.Content = compact ? "✎" : "Изменить";
         ClearSlotButton.Content = compact ? "×" : "Очистить";
         EditorCanvasScroller.VerticalScrollBarVisibility = compact
@@ -301,13 +303,32 @@ public partial class MainWindow : Window
 
     private void RefreshEditor()
     {
-        var (name, ring, style) = GetSelectedProfile();
-        RingEditor.ToolTip = $"Контекст: {name}";
-        RingEditor.RingScale = 1.0;
-        RingEditor.CenterDiameter = 32;
-        RingEditor.ApplyStyle(style);
-        RingEditor.Present(ring, animate: false);
-        SelectComboByTag(RingStyleCombo, style.Preset.ToString());
+        var (_, ring, style) = GetSelectedProfile();
+        var selectedId = _selectedSlot?.Id;
+        _refreshingEditor = true;
+        try
+        {
+            RingEditor.RingScale = 1.0;
+            RingEditor.CenterDiameter = 32;
+            RingEditor.ApplyStyle(style);
+            RingEditor.Present(ring, animate: false);
+            _selectedSlot = selectedId is null ? null : FindSlotById(ring, selectedId);
+            RingEditor.SetSelectedSlot(_selectedSlot);
+        }
+        finally
+        {
+            _refreshingEditor = false;
+        }
+        var wasRefreshing = _refreshing;
+        _refreshing = true;
+        try
+        {
+            SelectComboByTag(RingStyleCombo, style.Preset.ToString());
+        }
+        finally
+        {
+            _refreshing = wasRefreshing;
+        }
         EditRingColorsButton.Visibility = style.Preset == RingStylePreset.Custom
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -397,7 +418,7 @@ public partial class MainWindow : Window
         if (icon is Border iconBorder)
         {
             iconBorder.CornerRadius = new CornerRadius(7);
-            if (iconBorder.Child is Image image)
+            if (iconBorder.Child is ActionIconView image)
             {
                 image.Width = 18;
                 image.Height = 18;
@@ -441,12 +462,18 @@ public partial class MainWindow : Window
         };
         button.Click += (_, _) =>
         {
-            _selectedProfileId = id;
-            _selectedSlot = null;
-            RebuildProfileTabs();
-            RefreshEditor();
+            SelectApplicationProfile(id);
         };
         ProfileTabsPanel.Children.Add(button);
+    }
+
+    private void SelectApplicationProfile(string id)
+    {
+        _selectedProfileId = id;
+        _selectedSlot = null;
+        RebuildProfileTabs();
+        RebuildActionLibrary(ActionSearchBox.Text);
+        RefreshEditor();
     }
 
     private void RebuildUserProfilesList()
@@ -568,7 +595,7 @@ public partial class MainWindow : Window
 
         var edit = MakeSmallButton("Настроить", (_, _) =>
         {
-            _selectedProfileId = id;
+            SelectApplicationProfile(id);
             RingNav.IsChecked = true;
             NavigateTo("Ring");
         });
@@ -631,32 +658,17 @@ public partial class MainWindow : Window
     {
         var executable = profile?.MatchRules.FirstOrDefault(rule =>
             rule.Kind == ApplicationMatchKind.ExecutablePath)?.Pattern;
-        var image = _visuals.TryLoadIcon(profile?.IconPath)
-                    ?? _visuals.TryLoadIcon(executable)
-                    ?? _visuals.TryLoadIcon(profile?.LaunchTarget);
-        FrameworkElement content;
-        if (image is not null)
-        {
-            content = new Image
+        var content = CreateActionIcon(isGlobal ? "lucide:globe" : null,
+            isGlobal ? null : new ActionDefinition
             {
-                Source = image,
-                Width = 30,
-                Height = 30,
-                Stretch = Stretch.Uniform,
-            };
-        }
-        else
-        {
-            content = new TextBlock
-            {
-                Text = isGlobal ? "\uE774" : Initials(name),
-                Foreground = FindBrush("AccentBrush", Brushes.MediumPurple),
-                FontFamily = isGlobal ? FindResource("IconFont") as FontFamily : FindResource("UiFont") as FontFamily,
-                FontWeight = FontWeights.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-        }
+                Name = name,
+                Kind = ActionKind.LaunchApplication,
+                Icon = profile?.IconPath,
+                LaunchApplication = new LaunchApplicationAction
+                {
+                    ExecutablePath = profile?.LaunchTarget ?? executable ?? string.Empty,
+                },
+            }, 30);
 
         return new Border
         {
@@ -726,7 +738,7 @@ public partial class MainWindow : Window
                     ? $"ДЛЯ {group.Title.ToUpperInvariant()}"
                     : group.Title.ToUpperInvariant(),
                 Content = stack,
-                IsExpanded = query.Length > 0 || _actionGroupExpansion.GetValueOrDefault(group.Title),
+                IsExpanded = query.Length > 0 || _actionGroupExpansion.GetValueOrDefault(group.Title, group.IsContextual),
                 Foreground = group.IsContextual
                     ? FindBrush("AccentBrush", Brushes.MediumPurple)
                     : FindBrush("TextPrimaryBrush", Brushes.Black),
@@ -772,16 +784,7 @@ public partial class MainWindow : Window
             Height = 32,
             CornerRadius = new CornerRadius(16),
             Background = FindBrush("AccentSoftBrush", Brushes.Lavender),
-            Child = new TextBlock
-            {
-                Text = IconGlyphs.FromKey(item.Icon),
-                FontFamily = IconGlyphs.UsesTextFont(item.Icon)
-                    ? FindResource("UiFont") as FontFamily
-                    : FindResource("IconFont") as FontFamily,
-                Foreground = FindBrush("AccentBrush", Brushes.MediumPurple),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            },
+            Child = CreateActionIcon(item.Icon, item.CreateSlot().Action, 19),
         });
         content.Children.Add(Place(new StackPanel
         {
@@ -822,10 +825,29 @@ public partial class MainWindow : Window
         return button;
     }
 
-    private void OnEditorSlotInvoked(object? sender, RingSlotEventArgs e)
+    private void OnEditorSelectionChanged(object? sender, EventArgs e)
     {
-        _selectedSlot = e.Slot;
+        if (_refreshingEditor)
+        {
+            return;
+        }
+        _selectedSlot = RingEditor.SelectedSlot;
         RefreshSelectedSlotCard();
+    }
+
+    private ActionIconView CreateActionIcon(string? icon, ActionDefinition? action, double size)
+    {
+        var view = new ActionIconView
+        {
+            Width = size,
+            Height = size,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        view.SetResourceReference(Control.ForegroundProperty, "AccentBrush");
+        view.SetResourceReference(Control.BackgroundProperty, "AccentSoftBrush");
+        view.SetIcon(icon, action);
+        return view;
     }
 
     private async void OnEditorSlotDropRequested(object? sender, RingSlotDropEventArgs e)
@@ -854,6 +876,12 @@ public partial class MainWindow : Window
         var profileId = _selectedProfileId;
         var targetId = target.Id;
         var replacement = item.CreateSlot();
+        if (target.Submenu is not null && replacement.Submenu is not null)
+        {
+            RingEditor.SetSelectedSlot(target);
+            ShowStatus("Подменю уже добавлено. Нажмите «Изменить», чтобы настроить его.");
+            return;
+        }
         if (replacement.Submenu is not null)
         {
             var (_, rootRing, _) = GetSelectedProfile();
@@ -876,6 +904,8 @@ public partial class MainWindow : Window
             replacement = RingSlotDefinition.ForAction(editor.Result);
         }
 
+        replacement = RingSlotEditing.ComposeAssignment(target, replacement)!;
+
         if (await MutateAndSaveAsync(
                 configuration => CopySlot(
                     replacement,
@@ -892,27 +922,57 @@ public partial class MainWindow : Window
     {
         if (_selectedSlot is null)
         {
-            SelectedSlotGlyph.Text = "\uE710";
+            SelectedSlotIcon.SetIcon("lucide:plus");
             SelectedSlotTitle.Text = "Выберите пузырь";
             SelectedSlotDescription.Text = "Затем назначьте действие из библиотеки";
             EditSlotButton.IsEnabled = false;
             ClearSlotButton.IsEnabled = false;
             SlotAppearanceButton.IsEnabled = false;
+            SlotIconButton.IsEnabled = false;
             SlotAppearanceButton.ToolTip = "Выберите пузырь";
             return;
         }
-        SelectedSlotGlyph.Text = IconGlyphs.For(_selectedSlot);
+        SelectedSlotIcon.SetIcon(_selectedSlot.Icon ?? (_selectedSlot.Submenu is not null && _selectedSlot.Action?.Kind is null or ActionKind.None ? "folder" : null), _selectedSlot.Action);
         SelectedSlotTitle.Text = _selectedSlot.Label;
         SelectedSlotDescription.Text = _selectedSlot.Submenu is not null
-            ? $"Папка · {_selectedSlot.Submenu.SlotCount} действий"
+            ? _selectedSlot.Action is { Kind: not ActionKind.None } primary
+                ? $"По клику: {primary.Name} · Подменю: {_selectedSlot.Submenu.SlotCount}"
+                : $"Подменю: {_selectedSlot.Submenu.SlotCount} · По клику не назначено"
             : _selectedSlot.Action?.Description ?? DescribeAction(_selectedSlot.Action);
         EditSlotButton.IsEnabled = _selectedSlot.Submenu is not null || _selectedSlot.Action?.Kind is not (null or ActionKind.None);
         ClearSlotButton.IsEnabled = _selectedSlot.Submenu is not null || _selectedSlot.Action?.Kind != ActionKind.None;
-        var customStyle = GetSelectedProfile().Style.Preset == RingStylePreset.Custom;
-        SlotAppearanceButton.IsEnabled = customStyle;
-        SlotAppearanceButton.ToolTip = customStyle
-            ? "Индивидуальные цвета пузыря"
-            : "Доступно для стиля «Своя тема»";
+        SlotAppearanceButton.IsEnabled = true;
+        SlotAppearanceButton.ToolTip = "Индивидуальные цвета пузыря";
+        SlotIconButton.IsEnabled = true;
+    }
+
+    private async void OnEditSelectedSlotIcon(object sender, RoutedEventArgs e)
+    {
+        if (_selectedSlot is null)
+        {
+            return;
+        }
+        var profileId = _selectedProfileId;
+        var targetId = _selectedSlot.Id;
+        var picker = new IconPickerWindow(_selectedSlot.Icon) { Owner = this };
+        if (picker.ShowDialog() != true)
+        {
+            return;
+        }
+        if (await MutateAndSaveAsync(configuration =>
+                {
+                    var target = FindSlotById(configuration, profileId, targetId)
+                                 ?? throw new InvalidOperationException("The selected ring slot no longer exists.");
+                    target.Icon = picker.SelectedIcon;
+                    if (picker.SelectedIcon is null && target.Action is not null)
+                    {
+                        target.Action.Icon = null;
+                    }
+                }, updateAutostart: false))
+        {
+            _selectedSlot = FindSlotById(_controller.Configuration, profileId, targetId);
+            RefreshEditor();
+        }
     }
 
     private async void OnEditSelectedSlot(object sender, RoutedEventArgs e)
@@ -922,7 +982,7 @@ public partial class MainWindow : Window
             var profileId = _selectedProfileId;
             var targetId = _selectedSlot.Id;
             var editedSlot = Clone(_selectedSlot);
-            var editor = new FolderEditorWindow(editedSlot) { Owner = this };
+            var editor = new FolderEditorWindow(editedSlot, _controller.CaptureShortcutChordAsync) { Owner = this };
             if (editor.ShowDialog() == true)
             {
                 if (await MutateAndSaveAsync(
@@ -942,7 +1002,9 @@ public partial class MainWindow : Window
         {
             return;
         }
-        var actionEditor = new ActionEditorWindow(_selectedSlot.Action, _controller.CaptureShortcutChordAsync) { Owner = this };
+        var actionForEditing = Clone(_selectedSlot.Action);
+        actionForEditing.Icon = _selectedSlot.Icon ?? actionForEditing.Icon;
+        var actionEditor = new ActionEditorWindow(actionForEditing, _controller.CaptureShortcutChordAsync) { Owner = this };
         if (actionEditor.ShowDialog() == true && actionEditor.Result is not null)
         {
             var profileId = _selectedProfileId;
@@ -1068,14 +1130,17 @@ public partial class MainWindow : Window
 
     private async void OnEditSelectedSlotAppearance(object sender, RoutedEventArgs e)
     {
-        if (_selectedSlot is null || GetSelectedProfile().Style.Preset != RingStylePreset.Custom)
+        if (_selectedSlot is null)
         {
             return;
         }
 
         var profileId = _selectedProfileId;
         var targetId = _selectedSlot.Id;
-        var editor = new SlotAppearanceEditorWindow(_selectedSlot, GetSelectedProfile().Ring.Appearance)
+        var (_, ring, style) = GetSelectedProfile();
+        var wasCustom = style.Preset == RingStylePreset.Custom;
+        var inherited = wasCustom ? ring.Appearance.Clone() : CaptureVisibleRingPalette();
+        var editor = new SlotAppearanceEditorWindow(_selectedSlot, inherited)
         {
             Owner = this,
         };
@@ -1091,6 +1156,11 @@ public partial class MainWindow : Window
                     var target = FindSlotById(configuration, profileId, targetId)
                                  ?? throw new InvalidOperationException("The selected ring slot no longer exists.");
                     target.AppearanceOverride = appearance;
+                    if (!wasCustom)
+                    {
+                        GetProfileRing(configuration, profileId).Appearance = inherited;
+                        GetProfileStyle(configuration, profileId).Preset = RingStylePreset.Custom;
+                    }
                 },
                 updateAutostart: false))
         {
@@ -1098,6 +1168,17 @@ public partial class MainWindow : Window
             RefreshEditor();
         }
     }
+
+    private RingAppearanceDefinition CaptureVisibleRingPalette() => new()
+    {
+        BubbleColor = RingColor("RingBubbleBrush", RingAppearanceDefinition.DefaultBubbleColor),
+        BubbleHoverColor = RingColor("RingBubbleHoverBrush", RingAppearanceDefinition.DefaultBubbleHoverColor),
+        IconColor = RingColor("RingIconBrush", RingAppearanceDefinition.DefaultIconColor),
+        IconHoverColor = RingColor("RingIconHoverBrush", RingAppearanceDefinition.DefaultIconHoverColor),
+    };
+
+    private string RingColor(string resource, string fallback) =>
+        RingEditor.TryFindResource(resource) is SolidColorBrush brush ? brush.Color.ToString() : fallback;
 
     private async void OnResetRing(object sender, RoutedEventArgs e)
     {
@@ -2308,7 +2389,7 @@ public partial class MainWindow : Window
             {
                 RegenerateRingIds(slot.Submenu);
             }
-            else if (slot.Action is not null)
+            if (slot.Action is not null)
             {
                 RegenerateActionIds(slot.Action);
             }

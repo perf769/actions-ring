@@ -9,6 +9,23 @@ namespace ActionsRing.App.Tests;
 public sealed class ApplicationVisualServiceTests
 {
     [TestMethod]
+    public void FaviconDiscoveryHonorsRelIconsAndSkipsUnsafeReferences()
+    {
+        var candidates = ApplicationVisualService.FindFaviconCandidates("<link rel='stylesheet' href='/style.css'><link rel='apple-touch-icon' href='/touch.png'><link rel='icon' sizes='32x32' href='/icon.svg'><link rel='icon' href='http://127.0.0.1/private'>", new Uri("https://example.com"));
+        CollectionAssert.AreEqual(new[] { "https://example.com/icon.svg", "https://example.com/touch.png" }, candidates.Select(uri => uri.AbsoluteUri).ToArray());
+        Assert.IsFalse(ApplicationVisualService.IsPublicHttpUri(new Uri("http://192.168.1.2/favicon.ico")));
+        Assert.IsFalse(ApplicationVisualService.IsPublicHttpUri(new Uri("https://user:password@example.com/favicon.ico")));
+    }
+
+    [TestMethod]
+    public async Task ChatGptFaviconIsAvailableOfflineAndContrastAware()
+    {
+        var service = new ApplicationVisualService();
+        Assert.AreEqual("brand:openai", await service.GetFaviconAsync("https://chatgpt.com"));
+        Assert.IsNotNull(service.TryLoadIcon("brand:openai"));
+    }
+
+    [TestMethod]
     public void TryLoadIcon_CorruptBitmapReturnsNull()
     {
         using var workspace = new TemporaryWorkspace();

@@ -65,7 +65,7 @@ public sealed class ActionsRingConfiguration
 public static class ConfigurationSchema
 {
     public const int OldestSupportedVersion = 1;
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
 }
 
 public sealed class UserPreferences

@@ -443,6 +443,12 @@ try {
         -LiteralPath (Join-Path $installerDirectory 'README.md') `
         -Destination (Join-Path $packageStage 'README.md')
 
+    $licensesDirectory = Join-Path $packageStage 'licenses'
+    [void](New-Item -ItemType Directory -Path $licensesDirectory)
+    foreach ($licenseName in @('NOTICE.md', 'LUCIDE-LICENSE.txt', 'SIMPLE-ICONS-LICENSE.txt', 'SIMPLE-ICONS-DISCLAIMER.md', 'simple-icons-attribution.json')) {
+        Copy-Item -LiteralPath (Join-Path $repositoryRoot ('src\ActionsRing.App\Assets\Icons\' + $licenseName)) -Destination (Join-Path $licensesDirectory $licenseName)
+    }
+
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::CreateFromDirectory(
         $packageStage,

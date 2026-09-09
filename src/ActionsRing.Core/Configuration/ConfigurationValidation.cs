@@ -269,9 +269,9 @@ public static class ConfigurationValidator
                     continue;
                 }
 
-                if ((slot.Action is null) == (slot.Submenu is null))
+                if (slot.Action is null && slot.Submenu is null)
                 {
-                    Add(slotPath, "slot.target", "Slot must have exactly one action or submenu target.");
+                    Add(slotPath, "slot.target", "Slot must have an action, a submenu, or both.");
                 }
 
 
@@ -287,7 +287,7 @@ public static class ConfigurationValidator
                 {
                     ValidateRing(slot.Submenu, slotPath + ".submenu", depth + 1);
                 }
-                else if (slot.Action is not null)
+                if (slot.Action is not null)
                 {
                     ValidateAction(slot.Action, slotPath + ".action", 0);
                 }

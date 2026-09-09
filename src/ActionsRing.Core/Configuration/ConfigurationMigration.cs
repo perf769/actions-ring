@@ -52,6 +52,7 @@ public static class ConfigurationMigrator
                 1 => MigrateVersion1To2(root),
                 2 => MigrateVersion2To3(root),
                 3 => MigrateVersion3To4(root),
+                4 => MigrateVersion4To5(root),
                 _ => throw new UnsupportedConfigurationVersionException(version),
             };
         }
@@ -191,6 +192,78 @@ public static class ConfigurationMigrator
         root["schemaVersion"] = 4;
         return 4;
     }
+
+    private static int MigrateVersion4To5(JsonObject root)
+    {
+        // Both targets now have independent behavior: click invokes the action, hover opens
+        // the submenu. Preserve the complete legacy slot graph, including either target.
+        if (root["userProfiles"] is JsonArray userProfiles)
+        {
+            foreach (var userProfile in userProfiles.OfType<JsonObject>())
+            {
+                UpgradeLegacyPhotoshopIcons((userProfile["globalProfile"] as JsonObject)?["rootRing"] as JsonObject);
+                if (userProfile["applicationProfiles"] is JsonArray applicationProfiles)
+                {
+                    foreach (var profile in applicationProfiles.OfType<JsonObject>())
+                    {
+                        UpgradeLegacyPhotoshopIcons(profile["rootRing"] as JsonObject);
+                    }
+                }
+            }
+        }
+        root["schemaVersion"] = 5;
+        return 5;
+    }
+
+    private static void UpgradeLegacyPhotoshopIcons(JsonObject? ring)
+    {
+        if (ring?["slots"] is not JsonArray slots)
+        {
+            return;
+        }
+
+        foreach (var slot in slots.OfType<JsonObject>())
+        {
+            if (slot["action"] is JsonObject action
+                && ReadString(action["kind"]) == "keyboardShortcut"
+                && action["keyboardShortcut"] is JsonObject shortcut
+                && shortcut["chords"] is JsonArray { Count: 1 } chords
+                && chords[0] is JsonObject chord)
+            {
+                (string? Key, string? OldIcon, string? Icon, KeyboardModifiers Modifiers) replacement = ReadString(action["name"]) switch
+                {
+                    "Кисть" => ("B", "text", "lucide:brush", KeyboardModifiers.None),
+                    "Пипетка" => ("I", "copy", "lucide:pipette", KeyboardModifiers.None),
+                    "Перемещение" => ("V", "mouse", "lucide:move", KeyboardModifiers.None),
+                    "Прямоугольная область" => ("M", "screenshot", "lucide:scan", KeyboardModifiers.None),
+                    "Лассо" => ("L", "mouse", "lucide:lasso", KeyboardModifiers.None),
+                    "Рамка" => ("C", "screenshot", "lucide:crop", KeyboardModifiers.None),
+                    "Ластик" => ("E", "cut", "lucide:eraser", KeyboardModifiers.None),
+                    "Рука" => ("H", "mouse", "lucide:hand", KeyboardModifiers.None),
+                    "Масштаб" => ("Z", "search", "lucide:zoom-in", KeyboardModifiers.None),
+                    "Новый слой" => ("N", "window", "lucide:layers", KeyboardModifiers.Control | KeyboardModifiers.Shift),
+                    _ => default,
+                };
+                var modifiers = ReadString(chord["modifiers"]) ?? "none";
+                if (replacement.Key is not null
+                    && ReadString(action["icon"]) == replacement.OldIcon
+                    && string.Equals(ReadString(chord["key"]), replacement.Key, StringComparison.OrdinalIgnoreCase)
+                    && Enum.TryParse<KeyboardModifiers>(modifiers, ignoreCase: true, out var parsedModifiers)
+                    && parsedModifiers == replacement.Modifiers)
+                {
+                    action["icon"] = replacement.Icon;
+                    if (ReadString(slot["icon"]) == replacement.OldIcon)
+                    {
+                        slot["icon"] = replacement.Icon;
+                    }
+                }
+            }
+            UpgradeLegacyPhotoshopIcons(slot["submenu"] as JsonObject);
+        }
+    }
+
+    private static string? ReadString(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
     private static void PromoteLegacyPalette(JsonObject profile)
     {

@@ -1,5 +1,6 @@
 using ActionsRing.Core.Domain;
 using ActionsRing.Core.Profiles;
+using System.Text.RegularExpressions;
 
 namespace ActionsRing.App.Services;
 
@@ -62,44 +63,61 @@ public static class ContextualActionProvider
 
     public static ActionCatalogGroup? GetGroup(ActionCatalogContext? context)
     {
-        var process = NormalizeProcessName(context?.ProcessName, context?.ExecutablePath);
-        if (process.Length == 0)
+        if (context is null)
         {
             return null;
         }
 
-        if (process.StartsWith("photoshop", StringComparison.OrdinalIgnoreCase))
+        // A saved application can carry a display name or shell identity in ProcessName.
+        // Try each independent identity before falling back to a known product display name.
+        foreach (var identity in new[] { context.ProcessName, context.ExecutablePath })
         {
-            return PhotoshopPack();
+            var process = NormalizeProcessName(identity);
+            if (process.Equals("photoshop", StringComparison.OrdinalIgnoreCase)
+                || process.Equals("photoshopbeta", StringComparison.OrdinalIgnoreCase))
+            {
+                return PhotoshopPack();
+            }
+
+            if (BrowserProcesses.Contains(process))
+            {
+                return BrowserPack(BrowserDisplayName(process, context.DisplayName));
+            }
+
+            if (process.Equals("explorer", StringComparison.OrdinalIgnoreCase))
+            {
+                return ExplorerPack();
+            }
         }
 
-        if (BrowserProcesses.Contains(process))
+        foreach (var displayName in new[] { context.DisplayName, context.ProcessName })
         {
-            return BrowserPack(BrowserDisplayName(process, context?.DisplayName));
+            if (IsPhotoshopDisplayName(displayName))
+            {
+                return PhotoshopPack();
+            }
         }
 
-        return process.Equals("explorer", StringComparison.OrdinalIgnoreCase)
-            ? ExplorerPack()
-            : null;
+        return null;
     }
 
     private static ActionCatalogGroup PhotoshopPack() => new(
         "Adobe Photoshop",
         "Ps",
         [
-            Shortcut("Кисть", "Инструмент «Кисть» · B", "text", "B"),
-            Shortcut("Пипетка", "Инструмент «Пипетка» · I", "copy", "I"),
-            Shortcut("Перемещение", "Инструмент «Перемещение» · V", "mouse", "V"),
-            Shortcut("Прямоугольная область", "Инструмент выделения · M", "screenshot", "M"),
-            Shortcut("Лассо", "Инструмент «Лассо» · L", "mouse", "L"),
-            Shortcut("Рамка", "Инструмент кадрирования · C", "screenshot", "C"),
-            Shortcut("Ластик", "Инструмент «Ластик» · E", "cut", "E"),
-            Shortcut("Рука", "Перемещение холста · H", "mouse", "H"),
-            Shortcut("Масштаб", "Инструмент масштабирования · Z", "search", "Z"),
+            Shortcut("Кисть", "Инструмент «Кисть» · B", "lucide:brush", "B"),
+            Shortcut("Пипетка", "Инструмент «Пипетка» · I", "lucide:pipette", "I"),
+            Shortcut("Перемещение", "Инструмент «Перемещение» · V", "lucide:move", "V"),
+            Shortcut("Прямоугольная область", "Инструмент выделения · M", "lucide:scan", "M"),
+            Shortcut("Лассо", "Инструмент «Лассо» · L", "lucide:lasso", "L"),
+            Shortcut("Рамка", "Инструмент кадрирования · C", "lucide:crop", "C"),
+            Shortcut("Ластик", "Инструмент «Ластик» · E", "lucide:eraser", "E"),
+            Shortcut("Рука", "Перемещение холста · H", "lucide:hand", "H"),
+            Shortcut("Масштаб", "Инструмент масштабирования · Z", "lucide:zoom-in", "Z"),
             Shortcut(
                 "Новый слой",
                 "Создать новый слой · Ctrl + Shift + N",
-                "window",
+                "lucide:layers",
                 "N",
                 KeyboardModifiers.Control | KeyboardModifiers.Shift),
         ],
@@ -150,13 +168,22 @@ public static class ContextualActionProvider
             () => RingSlotDefinition.ForAction(
                 ActionDefinition.Shortcut(title, key, modifiers, icon, description)));
 
-    private static string NormalizeProcessName(string? processName, string? executablePath)
+    private static string NormalizeProcessName(string? identity)
     {
-        var candidate = string.IsNullOrWhiteSpace(processName)
-            ? Path.GetFileNameWithoutExtension(executablePath)
-            : Path.GetFileNameWithoutExtension(processName.Trim());
+        var candidate = string.IsNullOrWhiteSpace(identity)
+            ? null
+            : Path.GetFileNameWithoutExtension(identity.Trim().Trim('"'));
         return candidate?.Trim() ?? string.Empty;
     }
+
+    private static bool IsPhotoshopDisplayName(string? displayName) =>
+        !string.IsNullOrWhiteSpace(displayName)
+        && displayName.Length <= 120
+        && Regex.IsMatch(
+            displayName.Trim(),
+            @"^(?:Adobe\s+)?Photoshop(?:\s+(?:CC|CS[1-6]|Beta))?(?:\s+\d{2,4}(?:\.\d+)*)?(?:\s*\((?:64[- ]?bit|x64|Beta)\))?$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            TimeSpan.FromMilliseconds(50));
 
     private static string BrowserDisplayName(string process, string? displayName)
     {

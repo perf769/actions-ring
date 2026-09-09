@@ -210,15 +210,17 @@
 
                                 <Border Grid.Row="2" x:Name="SelectedSlotCard" Style="{StaticResource CardBorder}" Padding="15" CornerRadius="15">
                                     <Grid>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                         <Border Width="42" Height="42" CornerRadius="21" Background="{DynamicResource AccentSoftBrush}">
-                                            <TextBlock x:Name="SelectedSlotGlyph" Text="+" FontFamily="{DynamicResource IconFont}" FontSize="18" Foreground="{DynamicResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            <controls:ActionIconView x:Name="SelectedSlotIcon" Width="26" Height="26" Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource AccentSoftBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                         </Border>
-                                        <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
-                                            <TextBlock x:Name="SelectedSlotTitle" Text="Выберите пузырь" FontWeight="SemiBold" />
-                                            <TextBlock x:Name="SelectedSlotDescription" Text="Затем назначьте действие из библиотеки" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                            <TextBlock x:Name="SelectedSlotTitle" Text="Выберите пузырь" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
+                                            <TextBlock x:Name="SelectedSlotDescription" Text="Затем назначьте действие из библиотеки" Style="{StaticResource CaptionText}" Margin="0,3,0,0" MaxHeight="34" TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                                         </StackPanel>
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+                                            <Button x:Name="SlotIconButton" Style="{StaticResource SecondaryButton}" Content="Иконка" Click="OnEditSelectedSlotIcon" IsEnabled="False" Margin="0,0,8,0" ToolTip="Выбрать иконку пузыря" />
                                             <Button x:Name="SlotAppearanceButton" Style="{StaticResource SecondaryButton}" Content="Цвета" Click="OnEditSelectedSlotAppearance" IsEnabled="False" ToolTip="Индивидуальные цвета пузыря" />
                                             <Button x:Name="EditSlotButton" Style="{StaticResource SecondaryButton}" Content="Изменить" Click="OnEditSelectedSlot" IsEnabled="False" Margin="8,0,0,0" ToolTip="Изменить действие" />
                                             <Button x:Name="ClearSlotButton" Style="{StaticResource SecondaryButton}" Content="Очистить" Click="OnClearSelectedSlot" IsEnabled="False" Margin="8,0,0,0" />
@@ -465,7 +467,7 @@
                                         <TextBlock Text="Быстрое контекстное кольцо действий для Windows" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,5,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
-                                        <TextBlock x:Name="VersionText" Text="Версия 2.1.0" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        <TextBlock x:Name="VersionText" Text="Версия 2.2.0" FontWeight="SemiBold" HorizontalAlignment="Right" />
                                         <Border x:Name="VersionStatusBadge" Background="{DynamicResource SurfaceRaisedBrush}" CornerRadius="9" Padding="10,5" Margin="0,8,0,0" HorizontalAlignment="Right">
                                             <TextBlock x:Name="VersionStatusText" Text="Готово к проверке" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" />
                                         </Border>

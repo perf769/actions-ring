@@ -100,8 +100,8 @@ public sealed class RingSlotAppearanceDefinition
 }
 
 /// <summary>
-/// One radial position. A slot targets either an action or a nested ring; a submenu takes
-/// precedence if malformed input contains both.
+/// One radial position. An optional action is invoked on click, while an optional nested
+/// ring opens on hover. A slot may contain either target or both.
 /// </summary>
 public sealed class RingSlotDefinition
 {
@@ -129,14 +129,18 @@ public sealed class RingSlotDefinition
         };
     }
 
-    public static RingSlotDefinition ForSubmenu(string label, RingDefinition submenu, string? icon = null)
+    public static RingSlotDefinition ForSubmenu(
+        string label,
+        RingDefinition submenu,
+        string? icon = null,
+        ActionDefinition? action = null)
     {
         ArgumentNullException.ThrowIfNull(submenu);
         return new RingSlotDefinition
         {
             Label = label,
             Icon = icon,
-            Action = null,
+            Action = action,
             Submenu = submenu,
         };
     }

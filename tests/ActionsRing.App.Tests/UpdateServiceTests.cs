@@ -357,7 +357,7 @@ public sealed class UpdateServiceTests
         using var service = CreateService(handler, workspace.DirectoryPath);
 
         var result = await service.DownloadAndStageAsync(
-            CreateReleaseInfo(packageBytes, versionText: "2.2.0"));
+            CreateReleaseInfo(packageBytes, versionText: "99.0.0"));
 
         Assert.AreEqual(UpdateStageStatus.Failed, result.Status);
         Assert.AreEqual(UpdateFailureReason.InvalidPackage, result.FailureReason);
@@ -507,7 +507,7 @@ public sealed class UpdateServiceTests
         var digest = Sha256(packageBytes);
         var handler = new StubHandler((request, _) => Task.FromResult(
             request.RequestUri!.Host == "api.github.com"
-                ? JsonResponse(CreateReleaseJson("v2.1.0", packageBytes.Length, digest))
+                ? JsonResponse(CreateReleaseJson("v" + FixtureVersion, packageBytes.Length, digest))
                 : BinaryResponse(packageBytes)));
         using var workspace = new TemporaryWorkspace();
         using var service = CreateService(handler, workspace.DirectoryPath);
@@ -543,9 +543,9 @@ public sealed class UpdateServiceTests
 
     private static UpdateReleaseInfo CreateReleaseInfo(
         byte[] package,
-        string versionText = "2.1.0")
+        string? versionText = null)
     {
-        var version = SemanticVersion.Parse(versionText);
+        var version = SemanticVersion.Parse(versionText ?? FixtureVersion);
         return new UpdateReleaseInfo(
             version,
             $"v{version}",
@@ -580,6 +580,8 @@ public sealed class UpdateServiceTests
                 },
             },
         });
+
+    private static string FixtureVersion => typeof(UpdateService).Assembly.GetName().Version!.ToString(3);
 
     private static byte[] CreateValidPackage(string readme = "Actions Ring") => CreatePackage(
         ("ActionsRing.exe", GetActionsRingPeFixture()),

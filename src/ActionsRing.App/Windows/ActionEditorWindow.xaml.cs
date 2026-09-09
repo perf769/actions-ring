@@ -21,6 +21,7 @@ public partial class ActionEditorWindow : Window
     private readonly ApplicationVisualService _visuals = new();
     private CancellationTokenSource? _captureCancellation;
     private string? _automaticIconReference;
+    private string? _selectedIconReference;
 
     public ActionEditorWindow(
         ActionDefinition action,
@@ -31,7 +32,9 @@ public partial class ActionEditorWindow : Window
         _working = Clone(action);
         _captureShortcut = captureShortcut;
         InitializeComponent();
-        _automaticIconReference = IsBuiltInIcon(_working.Icon) ? null : _working.Icon;
+        _selectedIconReference = string.Equals(_working.Icon, DefaultIcon(_working.Kind), StringComparison.OrdinalIgnoreCase)
+            ? null
+            : _working.Icon;
         SourceInitialized += (_, _) => FitToMonitorWorkArea();
         Closed += (_, _) => _captureCancellation?.Cancel();
         PopulateStaticLists();
@@ -105,7 +108,6 @@ public partial class ActionEditorWindow : Window
         EditorSubtitle.Text = ActionTypeName(_working.Kind);
         RefreshHeaderIcon();
         NameBox.Text = _working.Name;
-        SelectIcon(_working.Icon);
 
         foreach (var panel in new[]
                  {
@@ -168,9 +170,7 @@ public partial class ActionEditorWindow : Window
     private void SaveFields()
     {
         _working.Name = NameBox.Text.Trim();
-        _working.Icon = (IconCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() is { Length: > 0 } icon
-            ? icon
-            : _automaticIconReference;
+        _working.Icon = _selectedIconReference;
         switch (_working.Kind)
         {
             case ActionKind.LaunchApplication when _working.LaunchApplication is not null:
@@ -235,12 +235,11 @@ public partial class ActionEditorWindow : Window
         SaveButton.IsEnabled = false;
         try
         {
-            if (IconCombo.SelectedIndex == 0
+            if (_selectedIconReference is null
                 && _working.Kind == ActionKind.OpenUri
                 && _working.OpenUri is not null)
             {
                 _automaticIconReference = await _visuals.GetFaviconAsync(_working.OpenUri.Uri);
-                _working.Icon = _automaticIconReference ?? "browser";
             }
         }
         finally
@@ -279,7 +278,6 @@ public partial class ActionEditorWindow : Window
                 dialog.FileName,
                 IconPath: dialog.FileName);
             _automaticIconReference = await _visuals.CacheApplicationIconAsync(application);
-            SelectIcon(null);
             RefreshHeaderIcon();
         }
     }
@@ -298,7 +296,6 @@ public partial class ActionEditorWindow : Window
         WorkingDirectoryBox.Clear();
         RunAsAdminCheck.IsChecked = false;
         _automaticIconReference = await _visuals.CacheApplicationIconAsync(application);
-        SelectIcon(null);
         RefreshHeaderIcon();
     }
 
@@ -478,32 +475,28 @@ public partial class ActionEditorWindow : Window
         }
     }
 
-    private void SelectIcon(string? icon)
+    private void OnPickIcon(object sender, RoutedEventArgs e)
     {
-        foreach (ComboBoxItem item in IconCombo.Items)
+        var picker = new IconPickerWindow(_selectedIconReference) { Owner = this };
+        if (picker.ShowDialog() == true)
         {
-            if (string.Equals(item.Tag?.ToString(), icon ?? string.Empty, StringComparison.OrdinalIgnoreCase))
-            {
-                IconCombo.SelectedItem = item;
-                return;
-            }
+            _selectedIconReference = picker.SelectedIcon;
+            RefreshHeaderIcon();
         }
-        IconCombo.SelectedIndex = 0;
+    }
+
+    private void OnAutomaticIcon(object sender, RoutedEventArgs e)
+    {
+        _selectedIconReference = null;
+        RefreshHeaderIcon();
     }
 
     private void RefreshHeaderIcon()
     {
-        var image = _visuals.TryLoadIcon(_automaticIconReference);
-        HeaderImage.Source = image;
-        HeaderImage.Visibility = image is null ? Visibility.Collapsed : Visibility.Visible;
-        HeaderGlyph.Visibility = image is null ? Visibility.Visible : Visibility.Collapsed;
-        HeaderGlyph.Text = IconGlyphs.FromKey(_working.Icon ?? DefaultIcon(_working.Kind));
+        _working.Icon = _selectedIconReference;
+        HeaderIcon.SetIcon(_selectedIconReference ?? _automaticIconReference, _working);
+        IconChoiceText.Text = _selectedIconReference is null ? "Автоматический выбор" : "Своя иконка";
     }
-
-    private bool IsBuiltInIcon(string? icon) =>
-        IconCombo.Items.OfType<ComboBoxItem>().Any(item =>
-            !string.IsNullOrWhiteSpace(item.Tag?.ToString())
-            && string.Equals(item.Tag?.ToString(), icon, StringComparison.OrdinalIgnoreCase));
 
     private static string ActionTypeName(ActionKind kind) => kind switch
     {

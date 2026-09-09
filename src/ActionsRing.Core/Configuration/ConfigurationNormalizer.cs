@@ -435,18 +435,19 @@ public static class ConfigurationNormalizer
                     if (depth >= MaximumSubmenuDepth)
                     {
                         slot.Submenu = null;
-                        slot.Action = ActionDefinition.None();
                         Warn(slotPath + ".submenu", "submenu.depth", "Submenu beyond the maximum nesting depth was removed.");
                     }
                     else
                     {
-                        slot.Action = null;
                         NormalizeRing(slot.Submenu, slotPath + ".submenu", depth + 1, normalizationContext);
                     }
                 }
-                else
+                if (slot.Submenu is null)
                 {
                     slot.Action ??= ActionDefinition.None();
+                }
+                if (slot.Action is not null)
+                {
                     NormalizeAction(slot.Action, slotPath + ".action", normalizationContext, 0);
                 }
 

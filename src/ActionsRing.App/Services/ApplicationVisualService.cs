@@ -3,6 +3,9 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.Concurrent;
+using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -16,13 +19,16 @@ public sealed class ApplicationVisualService
     private static readonly HttpClient HttpClient = CreateHttpClient();
     private readonly string _cacheDirectory;
     private readonly SemaphoreSlim _iconCacheGate = new(4, 4);
+    private readonly HttpClient _httpClient;
+    private readonly ConcurrentDictionary<string, (DateTime Expires, Task<string?> Task)> _faviconRequests = new();
 
-    public ApplicationVisualService(string? cacheDirectory = null)
+    public ApplicationVisualService(string? cacheDirectory = null, HttpClient? httpClient = null)
     {
         _cacheDirectory = cacheDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ActionsRing",
             "icons");
+        _httpClient = httpClient ?? HttpClient;
     }
 
     public ImageSource? TryLoadIcon(string? iconReference)
@@ -34,6 +40,10 @@ public sealed class ApplicationVisualService
 
         try
         {
+            if (IconLibrary.FindSvg(iconReference) is { } vector) return vector.CreateImage(Brushes.Black, monochrome: true);
+            if (Uri.TryCreate(iconReference, UriKind.Absolute, out var fileUri) && fileUri.IsFile) iconReference = fileUri.LocalPath;
+            if (iconReference.StartsWith("image:", StringComparison.OrdinalIgnoreCase)) iconReference = new IconImportService().ResolvePath(iconReference);
+            if (iconReference is null) return null;
             if (iconReference.StartsWith(@"shell:AppsFolder\", StringComparison.OrdinalIgnoreCase))
             {
                 return TryLoadAppsFolderIcon(iconReference);
@@ -43,6 +53,8 @@ public sealed class ApplicationVisualService
             {
                 return null;
             }
+            if (iconReference.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
+                return SafeSvgIcon.Parse(File.ReadAllText(iconReference)).CreateImage(Brushes.Black);
 
             if (iconReference.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                 || iconReference.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
@@ -75,6 +87,7 @@ public sealed class ApplicationVisualService
                                           or NotSupportedException
                                           or FormatException
                                           or ArgumentException
+                                          or System.Xml.XmlException
                                           or System.Security.SecurityException
                                           or System.Runtime.InteropServices.ExternalException)
         {
@@ -165,72 +178,60 @@ public sealed class ApplicationVisualService
         string? address,
         CancellationToken cancellationToken = default)
     {
-        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri)
-            || uri.Scheme is not ("http" or "https"))
-        {
-            return null;
-        }
-
+        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || !IsPublicHttpUri(uri)) return null;
+        if (IconLibrary.KnownWebsiteBrand(uri.Host) is { } brand) return brand;
         var origin = new UriBuilder(uri.Scheme, uri.Host, uri.IsDefaultPort ? -1 : uri.Port).Uri;
-        var destination = GetCachePath("sites", origin.AbsoluteUri);
-        if (IsUsableCachedIcon(destination))
-        {
-            return destination;
-        }
-        DeleteInvalidCacheEntry(destination);
+        var key = origin.AbsoluteUri;
+        if (_faviconRequests.TryGetValue(key, out var cachedRequest) && cachedRequest.Expires > DateTime.UtcNow)
+            return await cachedRequest.Task.WaitAsync(cancellationToken);
+        var task = ResolveFaviconAsync(origin);
+        _faviconRequests[key] = (DateTime.UtcNow.AddMinutes(5), task);
+        return await task.WaitAsync(cancellationToken);
+    }
 
+    private async Task<string?> ResolveFaviconAsync(Uri origin)
+    {
+        var destination = GetCachePath("sites", origin.AbsoluteUri);
+        if (IsUsableCachedIcon(destination)) return destination;
+        var svgDestination = Path.ChangeExtension(destination, ".svg");
+        if (IsUsableCachedIcon(svgDestination)) return svgDestination;
+        DeleteInvalidCacheEntry(destination);
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(3));
-            using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(origin, "/favicon.ico"));
-            request.Headers.UserAgent.ParseAdd("ActionsRing/2.1");
-            using var response = await HttpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                timeout.Token);
-            if (!response.IsSuccessStatusCode
-                || response.Content.Headers.ContentLength is > MaximumDownloadedIconBytes)
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var candidates = new List<Uri>();
+            var html = await DownloadBoundedAsync(origin, 256 * 1024, timeout.Token);
+            if (html is not null) candidates.AddRange(FindFaviconCandidates(Encoding.UTF8.GetString(html), origin));
+            candidates.Add(new Uri(origin, "/favicon.ico"));
+            candidates.Add(new Uri(origin, "/apple-touch-icon.png"));
+            foreach (var candidate in candidates.Distinct().Take(7))
             {
-                return null;
-            }
-
-            await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
-            using var memory = new MemoryStream();
-            var buffer = new byte[16 * 1024];
-            while (true)
-            {
-                var read = await input.ReadAsync(buffer, timeout.Token);
-                if (read == 0)
+                var bytes = await DownloadBoundedAsync(candidate, MaximumDownloadedIconBytes, timeout.Token);
+                if (bytes is null) continue;
+                try
                 {
-                    break;
+                    using var memory = new MemoryStream(bytes, writable: false);
+                    var beginning = Encoding.UTF8.GetString(bytes.AsSpan(0, Math.Min(bytes.Length, 512)));
+                    if (beginning.Contains("<svg", StringComparison.OrdinalIgnoreCase) || beginning.TrimStart().StartsWith("<?xml", StringComparison.Ordinal))
+                    {
+                        var svg = SafeSvgIcon.Parse(Encoding.UTF8.GetString(bytes));
+                        _ = svg.CreateImage(Brushes.Black);
+                        Directory.CreateDirectory(Path.GetDirectoryName(svgDestination)!);
+                        var temporary = svgDestination + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                        try { await File.WriteAllTextAsync(temporary, svg.ToSanitizedString(), timeout.Token); File.Move(temporary, svgDestination, overwrite: true); }
+                        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+                        return svgDestination;
+                    }
+                    var frame = new BitmapImage();
+                    frame.BeginInit(); frame.CacheOption = BitmapCacheOption.OnLoad; frame.DecodePixelWidth = 96; frame.StreamSource = memory; frame.EndInit();
+                    if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0 || frame.PixelHeight > 2048) continue;
+                    frame.Freeze();
+                    await Task.Run(() => WriteBitmapAtomically(frame, destination), timeout.Token);
+                    return destination;
                 }
-                if (memory.Length + read > MaximumDownloadedIconBytes)
-                {
-                    return null;
-                }
-                await memory.WriteAsync(buffer.AsMemory(0, read), timeout.Token);
+                catch (Exception exception) when (exception is FormatException or NotSupportedException or ArgumentException or System.Xml.XmlException) { }
             }
-
-            if (memory.Length == 0)
-            {
-                return null;
-            }
-
-            memory.Position = 0;
-            var frame = new BitmapImage();
-            frame.BeginInit();
-            frame.CacheOption = BitmapCacheOption.OnLoad;
-            frame.DecodePixelWidth = 96;
-            frame.StreamSource = memory;
-            frame.EndInit();
-            if (frame.PixelWidth <= 0 || frame.PixelHeight <= 0)
-            {
-                return null;
-            }
-            frame.Freeze();
-            await Task.Run(() => WriteBitmapAtomically(frame, destination), cancellationToken);
-            return destination;
+            return null;
         }
         catch (Exception exception) when (exception is HttpRequestException
                                           or IOException
@@ -239,14 +240,70 @@ public sealed class ApplicationVisualService
                                           or FormatException
                                           or ArgumentException
                                           or System.Security.SecurityException
+                                          or RegexMatchTimeoutException
                                           or OperationCanceledException)
         {
-            if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
             return null;
         }
+    }
+
+    internal static IReadOnlyList<Uri> FindFaviconCandidates(string html, Uri origin)
+    {
+        var candidates = new List<(Uri Uri, int Priority)>();
+        foreach (Match match in Regex.Matches(html, @"<link\b[^>]{0,4096}>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
+        {
+            var attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match attribute in Regex.Matches(match.Value, "([a-zA-Z-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100)))
+                attributes[attribute.Groups[1].Value] = WebUtility.HtmlDecode(attribute.Groups[2].Success ? attribute.Groups[2].Value : attribute.Groups[3].Success ? attribute.Groups[3].Value : attribute.Groups[4].Value);
+            if (!attributes.TryGetValue("rel", out var rel) || !attributes.TryGetValue("href", out var href)) continue;
+            var tokens = rel.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var standard = tokens.Contains("icon", StringComparer.OrdinalIgnoreCase);
+            var touch = tokens.Any(token => token.StartsWith("apple-touch-icon", StringComparison.OrdinalIgnoreCase));
+            if ((!standard && !touch) || !Uri.TryCreate(origin, href, out var uri) || !IsPublicHttpUri(uri)) continue;
+            candidates.Add((uri, standard ? 0 : 1));
+        }
+        return candidates.OrderBy(candidate => candidate.Priority).Select(candidate => candidate.Uri).Distinct().Take(5).ToArray();
+    }
+
+    private async Task<byte[]?> DownloadBoundedAsync(Uri uri, int maximum, CancellationToken cancellationToken)
+    {
+        try
+        {
+            for (var redirects = 0; redirects <= 3; redirects++)
+            {
+                if (!IsPublicHttpUri(uri)) return null;
+                using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                request.Headers.UserAgent.ParseAdd("ActionsRing/2.2");
+                using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                if ((int)response.StatusCode is >= 300 and <= 399 && response.Headers.Location is { } location)
+                { uri = location.IsAbsoluteUri ? location : new Uri(uri, location); continue; }
+                if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > maximum) return null;
+                await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var memory = new MemoryStream();
+                var buffer = new byte[8192];
+                int read;
+                while ((read = await input.ReadAsync(buffer, cancellationToken)) != 0)
+                { if (memory.Length + read > maximum) return null; await memory.WriteAsync(buffer.AsMemory(0, read), cancellationToken); }
+                return memory.Length == 0 ? null : memory.ToArray();
+            }
+        }
+        catch (HttpRequestException) { }
+        return null;
+    }
+
+    internal static bool IsPublicHttpUri(Uri uri) => uri.IsAbsoluteUri && uri.Scheme is "http" or "https"
+        && string.IsNullOrEmpty(uri.UserInfo) && uri.IsDefaultPort && !uri.IsLoopback
+        && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) && !uri.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+        && (!IPAddress.TryParse(uri.Host, out var ip) || IsPublicAddress(ip));
+
+    private static bool IsPublicAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        if (IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any) || address.IsIPv6LinkLocal || address.IsIPv6Multicast || address.IsIPv6SiteLocal) return false;
+        var bytes = address.GetAddressBytes();
+        return bytes.Length == 4 ? bytes[0] is not (0 or 10 or 127) && bytes[0] < 224 && !(bytes[0] == 169 && bytes[1] == 254)
+            && !(bytes[0] == 172 && bytes[1] is >= 16 and <= 31) && !(bytes[0] == 192 && bytes[1] == 168)
+            && !(bytes[0] == 100 && bytes[1] is >= 64 and <= 127) : (bytes[0] & 0xfe) != 0xfc;
     }
 
     private string GetCachePath(string category, string key)
@@ -309,9 +366,17 @@ public sealed class ApplicationVisualService
         var handler = new SocketsHttpHandler
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            AllowAutoRedirect = true,
-            MaxAutomaticRedirections = 4,
+            AllowAutoRedirect = false,
+            UseProxy = false,
             ConnectTimeout = TimeSpan.FromSeconds(2),
+            ConnectCallback = async (context, token) =>
+            {
+                var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token);
+                var address = addresses.FirstOrDefault(IsPublicAddress) ?? throw new HttpRequestException("Icon host does not resolve to a public address.");
+                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                try { await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), token); return new NetworkStream(socket, ownsSocket: true); }
+                catch { socket.Dispose(); throw; }
+            },
         };
         return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }

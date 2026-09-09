@@ -1,14 +1,12 @@
 using System.Globalization;
-using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
-using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using System.Windows.Threading;
+using ShapePath = System.Windows.Shapes.Path;
 using ActionsRing.App.Services;
 using ActionsRing.Core.Domain;
 using ActionsRing.Core.Profiles;
@@ -42,7 +40,7 @@ public partial class RingMenuControl : UserControl
     private const double BaseNodeSize = 48;
     private const double BaseSubmenuNodeSize = 48;
     private const double BaseRadius = 82;
-    private const double BaseSubmenuRadius = 183;
+    private const double BaseSubmenuRadius = 154;
     private const double BaseCenterSize = 32;
 
     private readonly List<NodeVisual> _rootNodes = [];
@@ -50,15 +48,21 @@ public partial class RingMenuControl : UserControl
     private readonly DispatcherTimer _submenuTimer;
     private readonly DispatcherTimer _tooltipTimer;
     private readonly DispatcherTimer _adjustmentFeedbackTimer;
-    private readonly ApplicationVisualService _applicationVisuals = new();
     private RingDefinition? _ring;
     private RingSlotDefinition? _pendingSubmenu;
     private NodeVisual? _pendingTooltip;
     private Border? _centerVisual;
-    private Border? _submenuBridge;
+    private ShapePath? _submenuBridge;
+    private readonly List<RingSlotDefinition> _openFolders = [];
+    private SubmenuAnimationState? _submenuAnimation;
+    private long _submenuAnimationRevision;
     private NodeVisual? _adjustmentFeedbackNode;
     private bool _animateOnNextLayout;
     private RingStyleDefinition? _style;
+
+    private static readonly DependencyProperty SubmenuProgressProperty = DependencyProperty.Register(
+        "SubmenuProgress", typeof(double), typeof(RingMenuControl),
+        new PropertyMetadata(0d, (owner, args) => ((RingMenuControl)owner).RenderSubmenuFrame((double)args.NewValue)));
 
     public RingMenuControl()
     {
@@ -84,7 +88,8 @@ public partial class RingMenuControl : UserControl
         _tooltipTimer.Tick += (_, _) =>
         {
             _tooltipTimer.Stop();
-            if (ShowTooltips && _pendingTooltip is { } node && ReferenceEquals(HoveredSlot, node.Slot))
+            if (ShowTooltips && _pendingTooltip is { } node && ReferenceEquals(HoveredSlot, node.Slot)
+                && !_openFolders.Contains(node.Slot))
             {
                 SetLabelVisible(node, true, animate: AnimationsEnabled);
             }
@@ -109,6 +114,7 @@ public partial class RingMenuControl : UserControl
 
     public event EventHandler<RingSlotEventArgs>? SlotInvoked;
     public event EventHandler<RingSlotEventArgs>? SlotFocused;
+    public event EventHandler? SelectionChanged;
     public event EventHandler<RingSlotDropEventArgs>? SlotDropRequested;
     public event EventHandler? CloseRequested;
     public event EventHandler<int>? AdjustmentRequested;
@@ -181,6 +187,55 @@ public partial class RingMenuControl : UserControl
 
     public RingSlotDefinition? HoveredSlot { get; private set; }
     public RingSlotDefinition? OpenFolder { get; private set; }
+    public RingSlotDefinition? SelectedSlot { get; private set; }
+
+    public void SetSelectedSlot(RingSlotDefinition? slot, bool animate = false)
+    {
+        if (slot is not null && (_ring is null || !FindSlotPath(_ring, slot, [], out _)))
+        {
+            slot = null;
+        }
+        var changed = !ReferenceEquals(SelectedSlot, slot);
+        SelectedSlot = slot;
+        if (InteractionMode == RingInteractionMode.Configure)
+        {
+            HoveredSlot = null;
+        }
+        CloseSubmenus(animate: false);
+        if (slot is not null && _ring is not null && FindSlotPath(_ring, slot, [], out var path))
+        {
+            foreach (var folder in path)
+            {
+                OpenSubmenu(folder, animate: animate && ReferenceEquals(folder, slot));
+            }
+        }
+        RefreshNodeStates(animate);
+        if (changed)
+        {
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private static bool FindSlotPath(
+        RingDefinition ring, RingSlotDefinition target, List<RingSlotDefinition> ancestors,
+        out List<RingSlotDefinition> path)
+    {
+        foreach (var slot in ring.Slots)
+        {
+            if (ReferenceEquals(slot, target))
+            {
+                path = slot.Submenu is null ? ancestors : [.. ancestors, slot];
+                return true;
+            }
+            if (slot.Submenu is not null
+                && FindSlotPath(slot.Submenu, target, [.. ancestors, slot], out path))
+            {
+                return true;
+            }
+        }
+        path = [];
+        return false;
+    }
 
     public void ApplyStyle(RingStyleDefinition? style)
     {
@@ -231,6 +286,8 @@ public partial class RingMenuControl : UserControl
         _ring = ring;
         UpdatePaletteResources();
         OpenFolder = null;
+        SelectedSlot = null;
+        _openFolders.Clear();
         HoveredSlot = null;
         _pendingSubmenu = null;
         _pendingTooltip = null;
@@ -245,6 +302,8 @@ public partial class RingMenuControl : UserControl
     {
         _ring = null;
         OpenFolder = null;
+        SelectedSlot = null;
+        _openFolders.Clear();
         HoveredSlot = null;
         _pendingSubmenu = null;
         _submenuTimer.Stop();
@@ -253,6 +312,8 @@ public partial class RingMenuControl : UserControl
         _pendingTooltip = null;
         _adjustmentFeedbackNode = null;
         RingCanvas.Children.Clear();
+        TooltipCanvas.Children.Clear();
+        StopSubmenuAnimation();
         _rootNodes.Clear();
         _submenuNodes.Clear();
         _centerVisual = null;
@@ -275,24 +336,22 @@ public partial class RingMenuControl : UserControl
             return;
         }
         var parentPoint = NodeCenter(parent);
-
+        var level = parent.ParentFolder is null ? 0 : _openFolders.IndexOf(parent.ParentFolder) + 1;
+        RemoveSubmenuVisuals(level);
+        _openFolders.Add(folder);
         OpenFolder = folder;
-        RemoveSubmenuVisuals();
-        foreach (var node in _rootNodes)
-        {
-            SetNodeHover(node, ReferenceEquals(node.Slot, folder), animate: true);
-        }
 
         var slots = folder.Submenu.Slots.Take(Math.Max(folder.Submenu.SlotCount, 0)).ToList();
         if (slots.Count == 0)
         {
+            RefreshNodeStates(animate);
             return;
         }
 
         var center = EffectiveCenter();
         var parentAngle = parent.Angle;
         var nodeSize = BaseSubmenuNodeSize * RingScale;
-        var obstacles = _rootNodes
+        var obstacles = _rootNodes.Concat(_submenuNodes)
             .Select(NodeCenter)
             .Append(center)
             .ToArray();
@@ -305,37 +364,33 @@ public partial class RingMenuControl : UserControl
             BaseSubmenuRadius * RingScale,
             parentAngle,
             obstacles,
-            4d * RingScale);
-        var leadIndex = slots.Count / 2;
-        var leadTarget = targets[leadIndex];
-        if (animate && !ReduceMotion)
-        {
-            CreateSubmenuBridge(parentPoint, leadTarget);
-        }
+            10d * RingScale);
+        var leadIndex = (slots.Count - 1) / 2;
+        var newNodes = new List<NodeVisual>();
 
         for (var index = 0; index < slots.Count; index++)
         {
             var target = targets[index];
             var angle = AngleBetween(center, target);
             var node = CreateNode(slots[index], angle, isSubmenu: true);
+            node.ParentFolder = folder;
             _submenuNodes.Add(node);
+            newNodes.Add(node);
             RingCanvas.Children.Add(node.Container);
+            TooltipCanvas.Children.Add(node.Label);
             PositionNode(node, target, center);
-            Panel.SetZIndex(node.Container, 30 + index);
-
-            if (animate)
+            Panel.SetZIndex(node.Container, 30 + level * 10 + index);
+        }
+        RefreshNodeStates(animate: false);
+        if (animate && !ReduceMotion)
+        {
+            StartSubmenuAnimation(parent, newNodes, targets, leadIndex);
+        }
+        else if (animate)
+        {
+            foreach (var node in newNodes)
             {
-                var isLead = index == leadIndex;
-                var total = Math.Clamp(SubmenuAnimationMilliseconds, 80, 1000);
-                var duration = Math.Max(80, (int)Math.Round(total * 0.56));
-                var leadDelay = Math.Max(0, (int)Math.Round(total * 0.14));
-                var branchDelay = Math.Max(0, (int)Math.Round(total * 0.34));
-                AnimateNodeEntrance(
-                    node,
-                    parentPoint,
-                    target,
-                    isLead ? duration : Math.Max(70, duration - 20),
-                    isLead ? leadDelay : branchDelay + Math.Abs(index - leadIndex) * 12);
+                AnimateNodeEntrance(node, parentPoint, node.Center, 90, 0);
             }
         }
     }
@@ -346,6 +401,14 @@ public partial class RingMenuControl : UserControl
         {
             return Task.CompletedTask;
         }
+
+        _submenuTimer.Stop();
+        _tooltipTimer.Stop();
+        _pendingSubmenu = null;
+        _pendingTooltip = null;
+        _submenuAnimationRevision++;
+        _submenuAnimation = null;
+        BeginAnimation(SubmenuProgressProperty, null);
 
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var nodes = _rootNodes.Concat(_submenuNodes).ToArray();
@@ -381,9 +444,15 @@ public partial class RingMenuControl : UserControl
 
     private void Rebuild(bool animate)
     {
+        var selection = SelectedSlot;
+        var openPath = _openFolders.ToArray();
+        StopSubmenuAnimation();
         RingCanvas.Children.Clear();
+        TooltipCanvas.Children.Clear();
         _rootNodes.Clear();
         _submenuNodes.Clear();
+        _openFolders.Clear();
+        OpenFolder = null;
         _centerVisual = null;
         _submenuBridge = null;
         _animateOnNextLayout = animate;
@@ -404,7 +473,7 @@ public partial class RingMenuControl : UserControl
             slots.Count,
             BaseNodeSize * RingScale,
             BaseRadius * RingScale,
-            4d * RingScale);
+            10d * RingScale);
         for (var index = 0; index < slots.Count; index++)
         {
             var target = targets[index];
@@ -412,6 +481,7 @@ public partial class RingMenuControl : UserControl
             var node = CreateNode(slots[index], angle, isSubmenu: false);
             _rootNodes.Add(node);
             RingCanvas.Children.Add(node.Container);
+            TooltipCanvas.Children.Add(node.Label);
             PositionNode(node, target, center);
             Panel.SetZIndex(node.Container, 10 + index);
             if (animate)
@@ -424,19 +494,37 @@ public partial class RingMenuControl : UserControl
                 AnimateNodeEntrance(node, center, target, Math.Max(80, total - staggerBudget), delay);
             }
         }
-
+        var restoredPath = openPath.Length > 0
+            ? openPath
+            : selection is not null && FindSlotPath(_ring, selection, [], out var selectedPath)
+                ? selectedPath.ToArray()
+                : [];
+        foreach (var folder in restoredPath)
+        {
+            OpenSubmenu(folder, animate: false);
+        }
+        SelectedSlot = selection;
+        if (!animate || restoredPath.Length > 0 || selection is not null)
+        {
+            RefreshNodeStates(animate: false);
+        }
         _animateOnNextLayout = false;
     }
 
     private void CreateCenter(Point center, bool animate)
     {
         var size = Math.Clamp(CenterDiameter, 24, 120) * RingScale;
-        var glyph = new TextBlock
+        var glyph = new ShapePath
         {
-            Text = "×",
-            FontSize = 17 * RingScale,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = ResourceBrush("RingIconBrush", Brushes.Black),
+            Data = Geometry.Parse("M 1,1 L 9,9 M 9,1 L 1,9"),
+            Width = 10 * RingScale,
+            Height = 10 * RingScale,
+            Stretch = Stretch.Uniform,
+            StrokeThickness = 1.6 * RingScale,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Stroke = ResourceBrush("RingIconBrush", Brushes.Black),
+            IsHitTestVisible = false,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -455,18 +543,25 @@ public partial class RingMenuControl : UserControl
         border.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
-            CloseRequested?.Invoke(this, EventArgs.Empty);
+            if (InteractionMode == RingInteractionMode.Configure)
+            {
+                SetSelectedSlot(null);
+            }
+            else
+            {
+                CloseRequested?.Invoke(this, EventArgs.Empty);
+            }
         };
         border.MouseLeftButtonDown += (_, args) => args.Handled = true;
         border.MouseEnter += (_, _) =>
         {
             border.Background = ResourceBrush("DangerBrush", new SolidColorBrush(Color.FromRgb(222, 102, 135)));
-            glyph.Foreground = Brushes.White;
+            glyph.Stroke = Brushes.White;
         };
         border.MouseLeave += (_, _) =>
         {
             border.Background = ResourceBrush("RingBubbleBrush", Brushes.WhiteSmoke);
-            glyph.Foreground = ResourceBrush("RingIconBrush", Brushes.Black);
+            glyph.Stroke = ResourceBrush("RingIconBrush", Brushes.Black);
         };
         Canvas.SetLeft(border, center.X - size / 2d);
         Canvas.SetTop(border, center.Y - size / 2d);
@@ -515,23 +610,20 @@ public partial class RingMenuControl : UserControl
             Brushes.White);
         var foreground = restingForeground;
         var background = CloneBrush(restingBackground);
-        var glyph = new TextBlock
+        var icon = new ActionIconView
         {
-            Text = IconGlyphs.For(slot),
-            FontFamily = IconGlyphs.UsesTextFont(slot.Icon)
-                ? TryFindResource("UiFont") as FontFamily ?? new FontFamily("Segoe UI")
-                : TryFindResource("IconFont") as FontFamily ?? new FontFamily("Segoe UI Symbol"),
-            FontSize = (isSubmenu ? 21 : 23) * RingScale,
-            FontWeight = FontWeights.SemiBold,
+            Width = size * 0.54d,
+            Height = size * 0.54d,
             Foreground = foreground,
+            Background = background,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             IsHitTestVisible = false,
         };
-        FrameworkElement iconVisual = (TryCreateRasterIcon(slot.Icon, size * 0.56d)
-                                       ?? TryCreateLaunchFallbackIcon(slot, size * 0.56d)) is { } image
-            ? image
-            : glyph;
+        icon.SetIcon(string.IsNullOrWhiteSpace(slot.Icon)
+            && slot.Submenu is not null && slot.Action is null or { Kind: ActionKind.None }
+                ? "folder" : slot.Icon, slot.Action);
+        FrameworkElement iconVisual = icon;
 
         Grid? adjustmentContent = null;
         Grid? adjustmentDetails = null;
@@ -540,6 +632,7 @@ public partial class RingMenuControl : UserControl
         TextBlock? adjustmentFeedback = null;
         FrameworkElement bubbleContent = iconVisual;
         var adjustment = InteractionMode == RingInteractionMode.Execute
+            && slot.Submenu is null
             && slot.Action is { Kind: ActionKind.AdjustParameter, AdjustParameter: not null }
                 ? slot.Action.AdjustParameter
                 : null;
@@ -675,38 +768,46 @@ public partial class RingMenuControl : UserControl
             Canvas.SetLeft(adjustmentShadow, 0);
             Canvas.SetTop(adjustmentShadow, 0);
         }
-        Border? tail = null;
-        if (slot.Submenu is not null && !isSubmenu)
+        ShapePath? tail = null;
+        ShapePath? tailChevron = null;
+        if (slot.Submenu is not null)
         {
-            var tailWidth = 18d * RingScale;
-            var tailHeight = 14d * RingScale;
-            tail = new Border
+            tail = new ShapePath
             {
-                Width = tailWidth,
-                Height = tailHeight,
-                CornerRadius = new CornerRadius(tailHeight / 2d),
-                Background = background,
+                Fill = background,
+                Cursor = Cursors.Hand,
+                Effect = TryFindResource("SoftShadow") as Effect,
+            };
+            bubble.Effect = null;
+            container.Children.Add(tail);
+            tailChevron = new ShapePath
+            {
+                Data = Geometry.Parse("M -1.2,-2.2 L 1,0 L -1.2,2.2"),
+                Stroke = foreground,
+                StrokeThickness = 1.1,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
                 IsHitTestVisible = false,
             };
-            var distance = size / 2d + 5d * RingScale;
-            Canvas.SetLeft(tail, size / 2d + Math.Cos(angle) * distance - tailWidth / 2d);
-            Canvas.SetTop(tail, size / 2d + Math.Sin(angle) * distance - tailHeight / 2d);
-            container.Children.Add(tail);
         }
 
         container.Children.Add(bubble);
         Canvas.SetLeft(bubble, 0);
         Canvas.SetTop(bubble, 0);
-        container.Children.Add(label);
+        if (tailChevron is not null)
+        {
+            container.Children.Add(tailChevron);
+        }
 
         var visual = new NodeVisual(
             slot,
             container,
             bubble,
-            glyph,
             iconVisual,
             label,
             tail,
+            tailChevron,
             angle,
             isSubmenu,
             size,
@@ -721,14 +822,23 @@ public partial class RingMenuControl : UserControl
             restingForeground,
             hoverBackground,
             hoverForeground);
-        bubble.MouseEnter += (_, _) => OnNodeEntered(visual);
-        bubble.MouseLeave += (_, _) => OnNodeLeft(visual);
+        container.MouseEnter += (_, _) => OnNodeEntered(visual);
+        container.MouseLeave += (_, _) => OnNodeLeft(visual);
         bubble.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
             OnNodeClicked(visual);
         };
         bubble.MouseLeftButtonDown += (_, args) => args.Handled = true;
+        if (tail is not null)
+        {
+            tail.MouseLeftButtonDown += (_, args) => args.Handled = true;
+            tail.MouseLeftButtonUp += (_, args) =>
+            {
+                args.Handled = true;
+                OnNodeClicked(visual);
+            };
+        }
         bubble.DragEnter += (_, args) =>
         {
             if (InteractionMode != RingInteractionMode.Configure)
@@ -741,10 +851,7 @@ public partial class RingMenuControl : UserControl
         };
         bubble.DragLeave += (_, args) =>
         {
-            if (!ReferenceEquals(OpenFolder, visual.Slot))
-            {
-                SetNodeHover(visual, false, animate: true);
-            }
+            SetNodeHover(visual, IsNodeActive(visual), animate: true);
             args.Handled = true;
         };
         bubble.Drop += (_, args) =>
@@ -765,11 +872,27 @@ public partial class RingMenuControl : UserControl
 
     private void OnNodeEntered(NodeVisual node)
     {
+        if (InteractionMode == RingInteractionMode.Execute)
+        {
+            if (!node.IsSubmenu && !ReferenceEquals(node.Slot, _openFolders.FirstOrDefault()))
+            {
+                CloseSubmenus(animate: false);
+            }
+            else if (node.ParentFolder is not null && !ReferenceEquals(node.Slot, OpenFolder))
+            {
+                var level = _openFolders.IndexOf(node.ParentFolder) + 1;
+                if (level > 0 && level < _openFolders.Count)
+                {
+                    RemoveSubmenuVisuals(level);
+                }
+            }
+        }
         HoveredSlot = node.Slot;
-        SetNodeHover(node, true, animate: AnimationsEnabled);
+        RefreshNodeStates(animate: AnimationsEnabled);
         _tooltipTimer.Stop();
         _pendingTooltip = node;
-        if (InteractionMode == RingInteractionMode.Execute && ShowTooltips && node.Adjustment is null)
+        if (InteractionMode == RingInteractionMode.Execute && ShowTooltips && node.Adjustment is null
+            && !_openFolders.Contains(node.Slot))
         {
             if (TooltipDelayMilliseconds == 0)
             {
@@ -780,7 +903,10 @@ public partial class RingMenuControl : UserControl
                 _tooltipTimer.Start();
             }
         }
-        SlotFocused?.Invoke(this, new RingSlotEventArgs(node.Slot, node.IsSubmenu));
+        if (InteractionMode == RingInteractionMode.Execute)
+        {
+            SlotFocused?.Invoke(this, new RingSlotEventArgs(node.Slot, node.IsSubmenu));
+        }
 
         if (InteractionMode == RingInteractionMode.Execute
             && node.Slot.Submenu is not null
@@ -794,18 +920,11 @@ public partial class RingMenuControl : UserControl
 
     private void OnNodeLeft(NodeVisual node)
     {
-        if (!ReferenceEquals(OpenFolder, node.Slot))
-        {
-            SetNodeHover(node, false, animate: AnimationsEnabled);
-        }
-        SetLabelVisible(
-            node,
-            InteractionMode == RingInteractionMode.Configure && ShowConfigurationLabels,
-            animate: AnimationsEnabled);
         if (ReferenceEquals(HoveredSlot, node.Slot))
         {
             HoveredSlot = null;
         }
+        RefreshNodeStates(animate: AnimationsEnabled);
         if (ReferenceEquals(_pendingSubmenu, node.Slot))
         {
             _submenuTimer.Stop();
@@ -826,17 +945,30 @@ public partial class RingMenuControl : UserControl
 
     private void OnNodeClicked(NodeVisual node)
     {
+        if (InteractionMode == RingInteractionMode.Configure)
+        {
+            SetSelectedSlot(ReferenceEquals(SelectedSlot, node.Slot) ? null : node.Slot, animate: true);
+            if (SelectedSlot is not null)
+            {
+                SlotFocused?.Invoke(this, new RingSlotEventArgs(node.Slot, node.IsSubmenu));
+                SlotInvoked?.Invoke(this, new RingSlotEventArgs(node.Slot, node.IsSubmenu));
+            }
+            return;
+        }
+
         if (node.Slot.Submenu is not null)
         {
             if (!ReferenceEquals(OpenFolder, node.Slot))
             {
                 OpenSubmenu(node.Slot, animate: true);
             }
-            SlotInvoked?.Invoke(this, new RingSlotEventArgs(node.Slot, node.IsSubmenu));
-            return;
+            if (node.Slot.Action is null or { Kind: ActionKind.None })
+            {
+                return;
+            }
         }
 
-        if (node.Slot.Action?.Kind == ActionKind.None && InteractionMode == RingInteractionMode.Execute)
+        if (node.Slot.Action is null or { Kind: ActionKind.None })
         {
             return;
         }
@@ -845,7 +977,8 @@ public partial class RingMenuControl : UserControl
 
     private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs args)
     {
-        if (HoveredSlot?.Action is not { Kind: ActionKind.AdjustParameter, AdjustParameter: not null }
+        if (InteractionMode != RingInteractionMode.Execute
+            || HoveredSlot?.Action is not { Kind: ActionKind.AdjustParameter, AdjustParameter: not null }
             || args.Delta == 0)
         {
             return;
@@ -1051,7 +1184,8 @@ public partial class RingMenuControl : UserControl
 
     private void SetNodeHover(NodeVisual node, bool hovered, bool animate)
     {
-        SetAdjustmentExpanded(node, hovered, animate);
+        node.IsActive = hovered;
+        SetAdjustmentExpanded(node, hovered && node.Slot.Submenu is null, animate);
         var targetBackground = hovered ? node.HoverBackground : node.RestingBackground;
         var targetForeground = hovered ? node.HoverForeground : node.RestingForeground;
 
@@ -1068,6 +1202,14 @@ public partial class RingMenuControl : UserControl
         else
         {
             node.Bubble.Background = CloneBrush(targetBackground);
+        }
+        if (node.Tail is not null)
+        {
+            node.Tail.Fill = node.Bubble.Background;
+        }
+        if (node.TailChevron is not null)
+        {
+            node.TailChevron.Stroke = targetForeground;
         }
         if (node.AdjustmentShadow is not null)
         {
@@ -1087,7 +1229,11 @@ public partial class RingMenuControl : UserControl
                 node.AdjustmentShadow.Background = CloneBrush(targetBackground);
             }
         }
-        node.Glyph.Foreground = targetForeground;
+        if (node.IconVisual is ActionIconView icon)
+        {
+            icon.Foreground = targetForeground;
+            icon.Background = targetBackground;
+        }
         if (node.AdjustmentName is not null)
         {
             node.AdjustmentName.Foreground = targetForeground;
@@ -1117,10 +1263,64 @@ public partial class RingMenuControl : UserControl
                 transform.ScaleY = scaleTarget;
             }
         }
-        if (InteractionMode == RingInteractionMode.Configure && ShowConfigurationLabels)
+    }
+
+    private bool IsNodeActive(NodeVisual node) => ReferenceEquals(SelectedSlot, node.Slot)
+        || ReferenceEquals(HoveredSlot, node.Slot)
+        || _openFolders.Contains(node.Slot);
+
+    private void RefreshNodeStates(bool animate)
+    {
+        foreach (var node in _rootNodes.Concat(_submenuNodes))
         {
-            SetLabelVisible(node, true, animate);
+            var active = IsNodeActive(node);
+            var dimmed = OpenFolder is not null
+                && !ReferenceEquals(node.Slot, OpenFolder)
+                && !ReferenceEquals(node.ParentFolder, OpenFolder);
+            if (node.IsActive != active || !animate)
+            {
+                SetNodeHover(node, active, animate);
+            }
+            var selectedOutline = ReferenceEquals(SelectedSlot, node.Slot) && !_openFolders.Contains(node.Slot);
+            node.Bubble.BorderBrush = selectedOutline
+                ? ResourceBrush("AccentBrush", new SolidColorBrush(Color.FromRgb(129, 76, 255)))
+                : Brushes.Transparent;
+            node.Bubble.BorderThickness = new Thickness(selectedOutline ? 2 : 0);
+            var opacity = dimmed ? 0.28d : 1d;
+            if ((node.IsDimmed != dimmed || !animate) && (!_animateOnNextLayout || OpenFolder is not null))
+            {
+                node.Container.BeginAnimation(OpacityProperty, null);
+                node.Container.Opacity = opacity;
+            }
+            node.IsDimmed = dimmed;
+            var labelsVisible = InteractionMode == RingInteractionMode.Configure
+                && ShowConfigurationLabels && !dimmed
+                && !ReferenceEquals(node.Slot, OpenFolder);
+            if (InteractionMode == RingInteractionMode.Execute)
+            {
+                labelsVisible = ShowTooltips && ReferenceEquals(HoveredSlot, node.Slot)
+                    && node.Label.Opacity > 0 && node.Adjustment is null && !_openFolders.Contains(node.Slot);
+            }
+            SetLabelVisible(node, labelsVisible, animate: false);
+            if (node.Tail is not null)
+            {
+                var visible = !_openFolders.Contains(node.Slot);
+                node.Tail.Visibility = visible ? Visibility.Visible : Visibility.Hidden;
+                if (node.TailChevron is not null)
+                {
+                    node.TailChevron.Visibility = node.Tail.Visibility;
+                }
+                node.Bubble.Effect = visible ? null : TryFindResource("SoftShadow") as Effect;
+            }
         }
+    }
+
+    private void CloseSubmenus(bool animate)
+    {
+        _submenuTimer.Stop();
+        _pendingSubmenu = null;
+        RemoveSubmenuVisuals();
+        RefreshNodeStates(animate);
     }
 
     private static void SetLabelVisible(NodeVisual node, bool visible, bool animate)
@@ -1193,6 +1393,12 @@ public partial class RingMenuControl : UserControl
 
     private void AnimateNodeExit(NodeVisual node, Point center, int durationMs, int delayMs)
     {
+        node.Label.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(0, TimeSpan.FromMilliseconds(ReduceMotion ? 75 : durationMs))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn },
+            });
         if (ReduceMotion)
         {
             node.Container.BeginAnimation(
@@ -1229,60 +1435,164 @@ public partial class RingMenuControl : UserControl
         }
     }
 
-    private void RemoveSubmenuVisuals()
+    private void RemoveSubmenuVisuals(int level = 0)
     {
+        StopSubmenuAnimation();
         if (_submenuBridge is not null)
         {
             RingCanvas.Children.Remove(_submenuBridge);
             _submenuBridge = null;
         }
-        foreach (var node in _submenuNodes)
+        var removedFolders = _openFolders.Skip(level).ToHashSet();
+        foreach (var node in _submenuNodes.Where(node => node.ParentFolder is null || removedFolders.Contains(node.ParentFolder)).ToArray())
         {
             RingCanvas.Children.Remove(node.Container);
+            TooltipCanvas.Children.Remove(node.Label);
+            _submenuNodes.Remove(node);
         }
-        _submenuNodes.Clear();
+        if (level < _openFolders.Count)
+        {
+            _openFolders.RemoveRange(level, _openFolders.Count - level);
+        }
+        OpenFolder = _openFolders.LastOrDefault();
     }
 
-    private void CreateSubmenuBridge(Point parent, Point child)
+    private void StartSubmenuAnimation(
+        NodeVisual parent, IReadOnlyList<NodeVisual> nodes, IReadOnlyList<Point> targets, int leadIndex)
     {
-        var dx = child.X - parent.X;
-        var dy = child.Y - parent.Y;
-        var length = Math.Sqrt(dx * dx + dy * dy);
-        var thickness = 22d * RingScale;
-        var angle = Math.Atan2(dy, dx) * 180d / Math.PI;
-        var scale = new ScaleTransform(0.06, 1);
-        var rotation = new RotateTransform(angle);
-        var transforms = new TransformGroup();
-        transforms.Children.Add(scale);
-        transforms.Children.Add(rotation);
-        var bridge = new Border
+        var bridge = new ShapePath
         {
-            Width = length,
-            Height = thickness,
-            CornerRadius = new CornerRadius(thickness / 2d),
-            Background = ResourceBrush("RingBubbleHoverBrush", Brushes.Black),
-            RenderTransformOrigin = new Point(0, 0.5),
-            RenderTransform = transforms,
+            Fill = parent.HoverBackground,
             IsHitTestVisible = false,
-            Opacity = 1,
+            Effect = TryFindResource("SoftShadow") as Effect,
         };
-        Canvas.SetLeft(bridge, parent.X);
-        Canvas.SetTop(bridge, parent.Y - thickness / 2d);
-        Panel.SetZIndex(bridge, 19);
+        Panel.SetZIndex(bridge, 0);
         RingCanvas.Children.Add(bridge);
         _submenuBridge = bridge;
-
-        scale.BeginAnimation(
-            ScaleTransform.ScaleXProperty,
-            new DoubleAnimation(0.06, 1, TimeSpan.FromMilliseconds(155))
+        _submenuAnimation = new SubmenuAnimationState(parent, nodes, targets, leadIndex);
+        var revision = ++_submenuAnimationRevision;
+        RenderSubmenuFrame(0);
+        var animation = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(Math.Clamp(SubmenuAnimationMilliseconds, 80, 1000)));
+        animation.Completed += (_, _) =>
+        {
+            if (revision == _submenuAnimationRevision)
             {
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-            });
-        var opacity = new DoubleAnimationUsingKeyFrames();
-        opacity.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(0))));
-        opacity.KeyFrames.Add(new DiscreteDoubleKeyFrame(1, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(165))));
-        opacity.KeyFrames.Add(new EasingDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(235)), new QuadraticEase { EasingMode = EasingMode.EaseIn }));
-        bridge.BeginAnimation(OpacityProperty, opacity);
+                StopSubmenuAnimation();
+            }
+        };
+        BeginAnimation(SubmenuProgressProperty, animation);
+    }
+
+    private void StopSubmenuAnimation()
+    {
+        _submenuAnimationRevision++;
+        BeginAnimation(SubmenuProgressProperty, null);
+        var hadAnimation = _submenuAnimation is not null;
+        if (_submenuAnimation is not null)
+        {
+            RenderSubmenuFrame(1);
+            _submenuAnimation = null;
+        }
+        if (_submenuBridge is not null)
+        {
+            RingCanvas.Children.Remove(_submenuBridge);
+            _submenuBridge = null;
+        }
+        if (hadAnimation)
+        {
+            RefreshNodeStates(animate: false);
+        }
+    }
+
+    private void RenderSubmenuFrame(double progress)
+    {
+        if (_submenuAnimation is not { } state)
+        {
+            return;
+        }
+        progress = Math.Clamp(progress, 0, 1);
+        var parent = state.Parent;
+        var parentScale = parent.Container.RenderTransform is ScaleTransform parentTransform ? parentTransform.ScaleX : 1d;
+        var parentRadius = parent.NodeSize / 2d * parentScale;
+        var lead = state.Nodes[state.LeadIndex];
+        var leadTarget = state.Targets[state.LeadIndex];
+        var direction = new Vector(Math.Cos(parent.Angle), Math.Sin(parent.Angle));
+        var origin = parent.Center + direction * (parentRadius * 1.05);
+        var travel = RingSubmenuMotion.Ease(progress / 0.76);
+        var leadCenter = RingSubmenuMotion.Lerp(origin, leadTarget, travel);
+        var growth = RingSubmenuMotion.Ease(progress / 0.61);
+        var leadRadius = lead.NodeSize / 2d * (0.25 + 0.75 * growth);
+        var distance = (leadCenter - parent.Center).Length;
+        var stretch = distance - parentRadius - leadRadius;
+        var strength = 1 - RingSubmenuMotion.Ease(Math.Max(0, stretch) / (23 * RingScale));
+        if (_submenuBridge is not null)
+        {
+            if (strength > 0.001)
+            {
+                _submenuBridge.Data = RingSubmenuMotion.Surface(parent.Center, parentRadius, leadCenter, leadRadius, strength);
+            }
+            else
+            {
+                _submenuBridge.Data = Geometry.Empty;
+            }
+        }
+        parent.Bubble.Effect = strength > 0.001 ? null : TryFindResource("SoftShadow") as Effect;
+
+        for (var index = 0; index < state.Nodes.Count; index++)
+        {
+            var node = state.Nodes[index];
+            Point point;
+            double scale;
+            double opacity;
+            if (index == state.LeadIndex)
+            {
+                point = leadCenter;
+                scale = leadRadius / (node.NodeSize / 2d);
+                opacity = 1;
+                var colorProgress = RingSubmenuMotion.Ease((progress - 0.47) / 0.33);
+                node.Bubble.Background = InterpolateBrush(parent.HoverBackground, node.RestingBackground, colorProgress);
+                if (node.IconVisual is ActionIconView icon)
+                {
+                    icon.Foreground = InterpolateBrush(parent.HoverForeground, node.RestingForeground, colorProgress);
+                    icon.Background = node.Bubble.Background;
+                }
+                node.Bubble.Effect = strength > 0.001 ? null : TryFindResource("SoftShadow") as Effect;
+                node.IconVisual.Opacity = RingSubmenuMotion.Ease((progress - 0.20) / 0.26);
+            }
+            else
+            {
+                var delay = 0.32 + Math.Abs(index - state.LeadIndex) * 0.035;
+                var stage = RingSubmenuMotion.Ease((progress - delay) / (1 - delay));
+                point = RingSubmenuMotion.Lerp(RingSubmenuMotion.Lerp(leadTarget, state.Targets[index], 0.78), state.Targets[index], stage);
+                scale = 0.12 + 0.88 * stage;
+                opacity = Math.Min(1, stage * 3);
+            }
+            Canvas.SetLeft(node.Container, point.X - node.AnchorOffsetX);
+            Canvas.SetTop(node.Container, point.Y - node.NodeSize / 2d);
+            node.Container.Opacity = opacity;
+            if (node.Container.RenderTransform is ScaleTransform transform)
+            {
+                transform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                transform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                transform.ScaleX = transform.ScaleY = scale;
+            }
+            if (InteractionMode == RingInteractionMode.Configure)
+            {
+                SetLabelVisible(node, progress >= 0.98 && ShowConfigurationLabels, animate: false);
+            }
+        }
+    }
+
+    private static Brush InterpolateBrush(Brush from, Brush to, double progress)
+    {
+        if (from is not SolidColorBrush left || to is not SolidColorBrush right)
+        {
+            return progress < 0.5 ? from : to;
+        }
+        static byte Mix(byte a, byte b, double p) => (byte)Math.Round(a + (b - a) * p);
+        return new SolidColorBrush(Color.FromArgb(
+            Mix(left.Color.A, right.Color.A, progress), Mix(left.Color.R, right.Color.R, progress),
+            Mix(left.Color.G, right.Color.G, progress), Mix(left.Color.B, right.Color.B, progress)));
     }
 
     private void RepositionWithoutAnimation()
@@ -1314,14 +1624,19 @@ public partial class RingMenuControl : UserControl
             _rootNodes.Count,
             BaseNodeSize * RingScale,
             BaseRadius * RingScale,
-            4d * RingScale);
+            10d * RingScale);
         for (var index = 0; index < _rootNodes.Count; index++)
         {
             PositionNode(_rootNodes[index], targets[index], center);
         }
         if (OpenFolder is not null)
         {
-            OpenSubmenu(OpenFolder, animate: false);
+            var path = _openFolders.ToArray();
+            RemoveSubmenuVisuals();
+            foreach (var folder in path)
+            {
+                OpenSubmenu(folder, animate: false);
+            }
         }
     }
 
@@ -1367,23 +1682,26 @@ public partial class RingMenuControl : UserControl
         Canvas.SetLeft(node.Container, left);
         Canvas.SetTop(node.Container, top);
 
-        PositionLabel(node, point, left, top);
+        PositionLabel(node, point);
 
         if (node.Tail is not null)
         {
-            var tailWidth = node.Tail.Width;
-            var tailHeight = node.Tail.Height;
-            var distance = node.NodeSize / 2d + 5d * RingScale;
-            Canvas.SetLeft(
-                node.Tail,
-                node.AnchorOffsetX + Math.Cos(node.Angle) * distance - tailWidth / 2d);
-            Canvas.SetTop(
-                node.Tail,
-                node.NodeSize / 2d + Math.Sin(node.Angle) * distance - tailHeight / 2d);
+            var localCenter = new Point(node.AnchorOffsetX, node.NodeSize / 2d);
+            node.Tail.Data = RingSubmenuMotion.AttachedSurface(localCenter, node.NodeSize / 2d, node.Angle);
+            if (node.TailChevron is not null)
+            {
+                var direction = new Vector(Math.Cos(node.Angle), Math.Sin(node.Angle));
+                var position = localCenter + direction * (node.NodeSize / 2d + 2.6 * RingScale);
+                var transforms = new TransformGroup();
+                transforms.Children.Add(new ScaleTransform(RingScale, RingScale));
+                transforms.Children.Add(new RotateTransform(node.Angle * 180 / Math.PI));
+                transforms.Children.Add(new TranslateTransform(position.X, position.Y));
+                node.TailChevron.RenderTransform = transforms;
+            }
         }
     }
 
-    private void PositionLabel(NodeVisual node, Point nodeCenter, double containerLeft, double containerTop)
+    private void PositionLabel(NodeVisual node, Point nodeCenter)
     {
         var bounds = EffectiveTooltipBounds();
         var margin = Math.Max(14d, 8d * RingScale);
@@ -1432,8 +1750,8 @@ public partial class RingMenuControl : UserControl
             node.Angle,
             gap,
             margin);
-        Canvas.SetLeft(node.Label, placement.TopLeft.X - containerLeft);
-        Canvas.SetTop(node.Label, placement.TopLeft.Y - containerTop);
+        Canvas.SetLeft(node.Label, placement.TopLeft.X);
+        Canvas.SetTop(node.Label, placement.TopLeft.Y);
     }
 
     private Rect EffectiveTooltipBounds()
@@ -1450,105 +1768,6 @@ public partial class RingMenuControl : UserControl
 
         var bounds = Rect.Intersect(canvas, _tooltipBounds);
         return bounds.IsEmpty ? canvas : bounds;
-    }
-
-    private Image? TryCreateRasterIcon(string? icon, double displaySize)
-    {
-        if (string.IsNullOrWhiteSpace(icon))
-        {
-            return null;
-        }
-
-        if (icon.StartsWith(@"shell:AppsFolder\", StringComparison.OrdinalIgnoreCase)
-            || icon.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            || icon.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateRasterIcon(_applicationVisuals.TryLoadIcon(icon), displaySize);
-        }
-
-        string path;
-        if (Uri.TryCreate(icon, UriKind.Absolute, out var uri) && uri.IsFile)
-        {
-            path = uri.LocalPath;
-        }
-        else if (System.IO.Path.IsPathFullyQualified(icon))
-        {
-            path = icon;
-        }
-        else
-        {
-            return null;
-        }
-
-        try
-        {
-            var info = new FileInfo(path);
-            if (!info.Exists || info.Length <= 0 || info.Length > 32 * 1024 * 1024)
-            {
-                return null;
-            }
-
-            using var stream = new FileStream(
-                info.FullName,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
-            var bitmap = new BitmapImage();
-            bitmap.BeginInit();
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
-            bitmap.DecodePixelWidth = Math.Clamp((int)Math.Ceiling(displaySize * 2d), 32, 256);
-            bitmap.StreamSource = stream;
-            bitmap.EndInit();
-            bitmap.Freeze();
-
-            return CreateRasterIcon(bitmap, displaySize);
-        }
-        catch (Exception exception) when (exception is IOException
-                                          or UnauthorizedAccessException
-                                          or ArgumentException
-                                          or FormatException
-                                          or NotSupportedException
-                                          or InvalidOperationException
-                                          or System.Security.SecurityException)
-        {
-            return null;
-        }
-    }
-
-    private Image? TryCreateLaunchFallbackIcon(RingSlotDefinition slot, double displaySize)
-    {
-        var launchTarget = slot.Action is { Kind: ActionKind.LaunchApplication }
-            ? slot.Action.LaunchApplication?.ExecutablePath
-            : null;
-        if (string.IsNullOrWhiteSpace(launchTarget)
-            || string.Equals(launchTarget, slot.Icon, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        return CreateRasterIcon(_applicationVisuals.TryLoadIcon(launchTarget), displaySize);
-    }
-
-    private static Image? CreateRasterIcon(ImageSource? source, double displaySize)
-    {
-        if (source is null)
-        {
-            return null;
-        }
-
-        var image = new Image
-        {
-            Source = source,
-            Width = displaySize,
-            Height = displaySize,
-            Stretch = Stretch.Uniform,
-            IsHitTestVisible = false,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
-        return image;
     }
 
     private Point EffectiveCenter() => new(
@@ -1612,10 +1831,10 @@ public partial class RingMenuControl : UserControl
         RingSlotDefinition slot,
         Canvas container,
         Border bubble,
-        TextBlock glyph,
         FrameworkElement iconVisual,
         Border label,
-        Border? tail,
+        ShapePath? tail,
+        ShapePath? tailChevron,
         double angle,
         bool isSubmenu,
         double nodeSize,
@@ -1634,10 +1853,11 @@ public partial class RingMenuControl : UserControl
         public RingSlotDefinition Slot { get; } = slot;
         public Canvas Container { get; } = container;
         public Border Bubble { get; } = bubble;
-        public TextBlock Glyph { get; } = glyph;
         public FrameworkElement IconVisual { get; } = iconVisual;
         public Border Label { get; } = label;
-        public Border? Tail { get; } = tail;
+        public ShapePath? Tail { get; } = tail;
+        public ShapePath? TailChevron { get; } = tailChevron;
+        public RingSlotDefinition? ParentFolder { get; set; }
         public double Angle { get; set; } = angle;
         public bool IsSubmenu { get; } = isSubmenu;
         public double NodeSize { get; } = nodeSize;
@@ -1657,7 +1877,12 @@ public partial class RingMenuControl : UserControl
         public double AnchorOffsetX { get; set; } = nodeSize / 2d;
         public Point Center { get; set; }
         public int RestingZIndex { get; set; }
+        public bool IsActive { get; set; }
+        public bool IsDimmed { get; set; }
     }
+
+    private sealed record SubmenuAnimationState(
+        NodeVisual Parent, IReadOnlyList<NodeVisual> Nodes, IReadOnlyList<Point> Targets, int LeadIndex);
 }
 
 public enum RingTooltipSide

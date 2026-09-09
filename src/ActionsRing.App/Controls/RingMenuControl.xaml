@@ -6,5 +6,6 @@
              SnapsToDevicePixels="True">
     <Grid x:Name="LayoutRoot" Background="Transparent">
         <Canvas x:Name="RingCanvas" ClipToBounds="False" />
+        <Canvas x:Name="TooltipCanvas" ClipToBounds="False" IsHitTestVisible="False" />
     </Grid>
 </UserControl>

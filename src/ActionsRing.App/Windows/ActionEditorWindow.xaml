@@ -1,6 +1,7 @@
 <Window x:Class="ActionsRing.App.Windows.ActionEditorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ActionsRing.App.Controls"
         Title="Настройка действия"
         Width="650"
         Height="650"
@@ -23,15 +24,12 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock x:Name="EditorTitle" Style="{StaticResource SectionTitleText}" Text="Настроить действие" />
+                <TextBlock x:Name="EditorTitle" Style="{StaticResource SectionTitleText}" Text="Настроить действие" TextWrapping="Wrap" Margin="0,0,12,0" />
                 <TextBlock x:Name="EditorSubtitle" Style="{StaticResource CaptionText}" Margin="0,5,0,0" />
             </StackPanel>
             <Border Grid.Column="1" Width="52" Height="52" CornerRadius="26" Background="{DynamicResource AccentSoftBrush}">
-                <Grid>
-                    <TextBlock x:Name="HeaderGlyph" HorizontalAlignment="Center" VerticalAlignment="Center"
-                               FontFamily="{DynamicResource IconFont}" FontSize="22" Foreground="{DynamicResource AccentBrush}" />
-                    <Image x:Name="HeaderImage" Width="36" Height="36" Stretch="Uniform" Visibility="Collapsed" />
-                </Grid>
+                <controls:ActionIconView x:Name="HeaderIcon" Width="32" Height="32"
+                                         Foreground="{DynamicResource AccentBrush}" Background="{DynamicResource AccentSoftBrush}" />
             </Border>
         </Grid>
 
@@ -41,31 +39,12 @@
                 <TextBox x:Name="NameBox" MaxLength="80" />
 
                 <TextBlock Text="Иконка" Style="{StaticResource CaptionText}" Margin="2,17,0,7" />
-                <ComboBox x:Name="IconCombo" SelectedValuePath="Tag">
-                    <ComboBoxItem Content="Автоматически" Tag="" />
-                    <ComboBoxItem Content="Клавиатура" Tag="keyboard" />
-                    <ComboBoxItem Content="Приложение" Tag="app" />
-                    <ComboBoxItem Content="Ссылка" Tag="browser" />
-                    <ComboBoxItem Content="Папка" Tag="folder" />
-                    <ComboBoxItem Content="Текст" Tag="text" />
-                    <ComboBoxItem Content="Мышь" Tag="mouse" />
-                    <ComboBoxItem Content="Медиа" Tag="media" />
-                    <ComboBoxItem Content="Воспроизведение" Tag="play" />
-                    <ComboBoxItem Content="Громкость" Tag="volume" />
-                    <ComboBoxItem Content="Без звука" Tag="mute" />
-                    <ComboBoxItem Content="Настройки" Tag="settings" />
-                    <ComboBoxItem Content="Окно" Tag="window" />
-                    <ComboBoxItem Content="Рабочий стол" Tag="desktop" />
-                    <ComboBoxItem Content="Поиск" Tag="search" />
-                    <ComboBoxItem Content="Снимок экрана" Tag="screenshot" />
-                    <ComboBoxItem Content="Блокировка" Tag="lock" />
-                    <ComboBoxItem Content="Копировать" Tag="copy" />
-                    <ComboBoxItem Content="Вставить" Tag="paste" />
-                    <ComboBoxItem Content="Вырезать" Tag="cut" />
-                    <ComboBoxItem Content="Отменить" Tag="undo" />
-                    <ComboBoxItem Content="Повторить" Tag="redo" />
-                    <ComboBoxItem Content="Мульти-действие" Tag="multi" />
-                </ComboBox>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="IconChoiceText" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" />
+                    <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="Автоматически" Click="OnAutomaticIcon" />
+                    <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="Выбрать…" Click="OnPickIcon" Margin="8,0,0,0" />
+                </Grid>
 
                 <Border Margin="0,20,0,0" Style="{StaticResource CardBorder}">
                     <Grid>

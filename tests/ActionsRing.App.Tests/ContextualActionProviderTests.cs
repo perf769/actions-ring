@@ -21,7 +21,52 @@ public sealed class ContextualActionProviderTests
         Assert.AreEqual(ActionKind.KeyboardShortcut, brush.Kind);
         Assert.AreEqual("B", brush.KeyboardShortcut!.Chords[0].Key);
         Assert.AreEqual("Инструмент «Кисть» · B", brush.Description);
+        CollectionAssert.AreEqual(
+            new[] { "lucide:brush", "lucide:pipette", "lucide:move", "lucide:scan", "lucide:lasso", "lucide:crop", "lucide:eraser", "lucide:hand", "lucide:zoom-in", "lucide:layers" },
+            groups[0].Items.Select(item => item.CreateSlot().Icon).ToArray());
         Assert.AreSame(ActionCatalog.Groups[0], groups[1]);
+    }
+
+    [DataTestMethod]
+    [DataRow(null, @"C:\Program Files\Adobe\Adobe Photoshop 2024\Photoshop.exe", null)]
+    [DataRow("Adobe Photoshop 2024", null, null)]
+    [DataRow(null, null, "Adobe Photoshop 2024")]
+    [DataRow("unknown-shell-id", @"C:\Program Files\Adobe\Photoshop.exe", "Adobe Photoshop")]
+    [DataRow("Photoshop.exe", null, null)]
+    [DataRow(@"""C:\Program Files\Adobe\Photoshop.exe""", null, null)]
+    [DataRow(null, null, "Adobe Photoshop CC 2024 (64-bit)")]
+    [DataRow(null, null, "Adobe Photoshop (Beta)")]
+    public void PhotoshopIdentity_UsesIndependentProcessPathAndProductNameFallbacks(
+        string? process, string? path, string? name)
+    {
+        var group = ContextualActionProvider.GetGroup(new ActionCatalogContext(process, path, name));
+
+        Assert.IsNotNull(group);
+        Assert.AreEqual("Adobe Photoshop", group.Title);
+    }
+
+    [DataTestMethod]
+    [DataRow("photoshop-helper")]
+    [DataRow("photoshop-notes")]
+    [DataRow("my-photoshop")]
+    [DataRow("Adobe Photoshop tutorial")]
+    [DataRow("PhotoshopElementsEditor")]
+    public void PhotoshopIdentity_DoesNotMatchUnrelatedNamesOrUtilities(string identity)
+    {
+        var group = ContextualActionProvider.GetGroup(new ActionCatalogContext(identity, DisplayName: identity));
+
+        Assert.IsNull(group);
+    }
+
+    [TestMethod]
+    public void KnownExecutableIdentity_TakesPriorityOverDisplayName()
+    {
+        var group = ContextualActionProvider.GetGroup(new ActionCatalogContext(
+            "not-an-executable", @"C:\Program Files\Google\Chrome\Application\chrome.exe", "Adobe Photoshop 2024"));
+
+        Assert.IsNotNull(group);
+        Assert.IsTrue(group.Items.Any(item => item.Title == "Новая вкладка"));
+        Assert.IsFalse(group.Items.Any(item => item.Title == "Кисть"));
     }
 
     [DataTestMethod]

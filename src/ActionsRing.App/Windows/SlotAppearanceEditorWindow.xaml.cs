@@ -43,6 +43,9 @@ public partial class SlotAppearanceEditorWindow : Window
         _iconHoverColor = ColorValue.NormalizeOrDefault(appearance?.IconHoverColor, _inherited.IconHoverColor);
 
         InitializeComponent();
+        var iconReference = slot.Icon ?? (slot.Submenu is not null && slot.Action?.Kind is null or ActionKind.None ? "folder" : null);
+        RestIcon.SetIcon(iconReference, slot.Action);
+        HoverIcon.SetIcon(iconReference, slot.Action);
         SlotCaption.Text = $"«{slot.Label}» — отключённые параметры наследуют цвета темы кольца.";
         BubbleEnabled.IsChecked = appearance?.BubbleColor is not null;
         BubbleHoverEnabled.IsChecked = appearance?.BubbleHoverColor is not null;
@@ -158,9 +161,10 @@ public partial class SlotAppearanceEditorWindow : Window
         var iconHover = IconHoverEnabled.IsChecked == true ? _iconHoverColor : _inherited.IconHoverColor;
         RestBubble.Background = Brush(bubble);
         RestIcon.Foreground = Brush(icon);
+        RestIcon.Background = RestBubble.Background;
         HoverBubble.Background = Brush(bubbleHover);
         HoverIcon.Foreground = Brush(iconHover);
-        HoverLabel.Foreground = Brush(iconHover);
+        HoverIcon.Background = HoverBubble.Background;
     }
 
     private static string DisplayValue(System.Windows.Controls.Primitives.ToggleButton toggle, string color) =>
