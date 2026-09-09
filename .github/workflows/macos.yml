@@ -1,0 +1,40 @@
+name: macOS Apple Silicon
+on:
+  push:
+    paths:
+      - 'macOS/**'
+      - '.github/workflows/macos.yml'
+      - 'src/ActionsRing.App/Assets/ActionsRingLogo.png'
+  pull_request:
+    paths:
+      - 'macOS/**'
+      - '.github/workflows/macos.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test and package
+        run: bash macOS/build.sh "${{ github.workspace }}/dist/macos"
+      - name: Upload application and visual checks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ActionsRing-${{ matrix.runner }}-AppleSilicon
+          path: dist/macos/
+          if-no-files-found: warn
+          retention-days: 14
