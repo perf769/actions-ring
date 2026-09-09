@@ -136,6 +136,19 @@ private enum MacVisualSmoke {
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.4))
             guard !controller.ring.isVisible else { throw CocoaError(.coderInvalidValue) }
         }
+        if let screen = NSScreen.main {
+            let center = NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY)
+            for theme in [RingTheme.light, .dark] {
+                fixture.theme = theme
+                controller.ring.show(profile: fixture, preferences: store.configuration.preferences, cursorOverride: center)
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.4))
+                controller.ring.previewSubmenu(at: 6)
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+                guard let content = controller.ring.panel?.contentView else { throw CocoaError(.fileReadUnknown) }
+                try capture(content, to: directory.appendingPathComponent("ring-submenu-center-\(theme.rawValue).png"))
+                controller.ring.hide()
+            }
+        }
         controller.ring.hide()
         guard !controller.ring.isVisible else { throw CocoaError(.coderInvalidValue) }
         try store.save()

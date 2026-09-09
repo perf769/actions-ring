@@ -20,7 +20,7 @@ final class AppController: NSObject, ObservableObject {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     private var permissionTimer: Timer?
-    private var escapeMonitor: Any?
+    private var outsideClickMonitor: Any?
     private var targetApplication: NSRunningApplication?
     private var previewing = false
     private var lastBinding: TriggerBinding?
@@ -52,6 +52,18 @@ final class AppController: NSObject, ObservableObject {
                 guard let self, self.hasStarted, self.isEnabled, self.isInputReady,
                       self.inputGeneration == generation, self.store.configuration.trigger.mode == .hold else { return }
                 self.ring.commit(holdRelease: true)
+            }
+        }
+        input.shouldCancelOnEscape = { [weak self] in self?.ring.isVisible == true }
+        input.onCancel = { [weak self] in
+            guard let self else { return }
+            // Invalidate a queued hold-release immediately, but defer window work
+            // until Quartz has finished filtering the physical Escape event.
+            self.invalidateInteraction(hideRing: false)
+            let generation = self.inputGeneration
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.inputGeneration == generation else { return }
+                self.ring.hide()
             }
         }
         input.onError = { [weak self] message in
@@ -90,12 +102,15 @@ final class AppController: NSObject, ObservableObject {
                 if hadAccess != (self.accessibilityGranted && self.inputMonitoringGranted) { self.updateInput() }
             }
         }
-        escapeMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53,
-                  event.cgEvent?.getIntegerValueField(.eventSourceUserData) != MacSyntheticEvent.tag else { return }
-            Task { @MainActor in
+        // The panel covers its own display. Observe clicks delivered to other apps
+        // (including a second display) only to dismiss it; never consume that click.
+        // AppKit invokes global event monitor handlers on the main thread.
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            guard event.cgEvent?.getIntegerValueField(.eventSourceUserData) != MacSyntheticEvent.tag else { return }
+            MainActor.assumeIsolated {
                 guard let self, self.hasStarted, self.ring.isVisible else { return }
-                self.ring.hide()
+                self.invalidateInteraction()
             }
         }
         if !startInBackground && !CommandLine.arguments.contains("--background") { openSettings() }
@@ -107,8 +122,8 @@ final class AppController: NSObject, ObservableObject {
         invalidateInteraction()
         permissionTimer?.invalidate()
         permissionTimer = nil
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
         input.stop()
         ring.hide()
         if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
@@ -220,7 +235,7 @@ final class AppController: NSObject, ObservableObject {
     func revealSettingsFolder() { NSWorkspace.shared.activateFileViewerSelecting([store.configurationURL]) }
 
     func reportBug() {
-        let system = ProcessInfo.processInfo.operatingSystemVersionString + " · arm64"
+        let system = "macOS " + ProcessInfo.processInfo.operatingSystemVersionString + " · arm64"
         guard let url = BugReport.url(version: version, system: system), NSWorkspace.shared.open(url) else {
             statusMessage = "Не удалось открыть браузер. Сообщить об ошибке можно в разделе Issues на github.com/perf769/actions-ring."
             return
@@ -283,9 +298,9 @@ final class AppController: NSObject, ObservableObject {
         launchAtLoginEnabled = status == .enabled || status == .requiresApproval
     }
 
-    private func invalidateInteraction() {
+    private func invalidateInteraction(hideRing: Bool = true) {
         inputGeneration += 1
-        ring.hide()
+        if hideRing { ring.hide() }
         for task in pendingActions.values { task.cancel() }
         pendingActions.removeAll()
         actionTail = nil

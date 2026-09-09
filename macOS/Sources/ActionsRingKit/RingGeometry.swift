@@ -66,6 +66,7 @@ public enum RingGeometry {
         let safe = bounds.insetBy(dx: margin, dy: margin)
         var best: [RingBubbleLayout] = []
         var bestScore: Double = .infinity
+        var bestPenalty: Double = .infinity
         let pi = Double.pi
         let offsets: [Double] = [0, pi / 6, -pi / 6, pi / 3, -pi / 3, pi / 2, -pi / 2,
                                  pi * 2 / 3, -pi * 2 / 3, pi * 5 / 6, -pi * 5 / 6, pi]
@@ -79,32 +80,65 @@ public enum RingGeometry {
                 let y: Double = parentY + sin(angle) * distance
                 nodes.append(RingBubbleLayout(index: index, center: point(x, y), radius: radius))
             }
-            let score: Double = layoutScore(nodes, bounds: safe, obstacles: obstacles) + abs(offset) * 0.5
-            if score < bestScore { best = nodes; bestScore = score }
+            let penalty = layoutScore(nodes, bounds: safe, obstacles: obstacles)
+            let score: Double = penalty + abs(offset) * 0.5
+            if isBetterLayout(penalty: penalty, score: score, bestPenalty: bestPenalty, bestScore: bestScore) {
+                best = nodes
+                bestScore = score
+                bestPenalty = penalty
+            }
             if score < 0.01 { break }
         }
-        if bestScore > 0.1 {
-            // The compact grid is a deterministic escape hatch for a deeply nested ring near a corner.
-            // Unlike individually clamping fan positions, it never stacks several children on one point.
-            let columns = min(3, count)
-            let rows = Int(ceil(Double(count) / Double(columns)))
-            let width: Double = Double(columns - 1) * spacing
-            let height: Double = Double(rows - 1) * spacing
-            let availableWidth: Double = max(0, Double(safe.width) - width)
-            let availableHeight: Double = max(0, Double(safe.height) - height)
-            for yIndex in 0..<4 {
-                for xIndex in 0..<5 {
-                    let left: Double = Double(safe.minX) + availableWidth * Double(xIndex) / 4
-                    let top: Double = Double(safe.minY) + availableHeight * Double(yIndex) / 3
-                    var nodes: [RingBubbleLayout] = []
-                    for index in 0..<count {
-                        let x: Double = left + Double(index % columns) * spacing
-                        let y: Double = top + Double(index / columns) * spacing
-                        nodes.append(RingBubbleLayout(index: index, center: point(x, y), radius: radius))
+        if bestPenalty > 0.0001 {
+            // Search positions beside the parent and tangent to nearby obstacles, not a coarse
+            // screen-wide grid: at a corner, the latter can strand children far from their parent.
+            // Only candidate generation is bounded; collision checks still include every ancestor.
+            let nearby = Array(obstacles.sorted { lhs, rhs in
+                let leftDistance = hypot(Double(lhs.center.x) - parentX, Double(lhs.center.y) - parentY)
+                let rightDistance = hypot(Double(rhs.center.x) - parentX, Double(rhs.center.y) - parentY)
+                return leftDistance < rightDistance
+            }.prefix(12))
+            for columns in 1...min(3, count) {
+                let rows = Int(ceil(Double(count) / Double(columns)))
+                let width: Double = Double(columns - 1) * spacing
+                let height: Double = Double(rows - 1) * spacing
+                guard width <= Double(safe.width), height <= Double(safe.height) else { continue }
+                let horizontal = gridAxisCandidates(parent: parentX, span: width, spacing: spacing, cells: columns,
+                                                    lower: Double(safe.minX), upper: Double(safe.maxX),
+                                                    radius: radius, obstacles: nearby, horizontal: true)
+                let vertical = gridAxisCandidates(parent: parentY, span: height, spacing: spacing, cells: rows,
+                                                  lower: Double(safe.minY), upper: Double(safe.maxY),
+                                                  radius: radius, obstacles: nearby, horizontal: false)
+                for top in vertical {
+                    for left in horizontal {
+                        var nodes: [RingBubbleLayout] = []
+                        var nearest: Double = .infinity
+                        var totalDistance: Double = 0
+                        for index in 0..<count {
+                            let x: Double = left + Double(index % columns) * spacing
+                            let y: Double = top + Double(index / columns) * spacing
+                            nodes.append(RingBubbleLayout(index: index, center: point(x, y), radius: radius))
+                            let distance = hypot(x - parentX, y - parentY)
+                            nearest = min(nearest, distance)
+                            totalDistance += distance
+                        }
+                        let penalty = layoutScore(nodes, bounds: safe, obstacles: obstacles)
+                        let proximity: Double = nearest * 0.01 + totalDistance / Double(count) * 0.02
+                        let score: Double = penalty + 4 + proximity
+                        if isBetterLayout(penalty: penalty, score: score, bestPenalty: bestPenalty, bestScore: bestScore) {
+                            // The first droplet emerges into the nearest free position even when the
+                            // compact fallback has to be placed above or to the left of its parent.
+                            nodes.sort { lhs, rhs in
+                                let leftDistance = hypot(Double(lhs.center.x) - parentX, Double(lhs.center.y) - parentY)
+                                let rightDistance = hypot(Double(rhs.center.x) - parentX, Double(rhs.center.y) - parentY)
+                                return leftDistance == rightDistance ? lhs.index < rhs.index : leftDistance < rightDistance
+                            }
+                            for index in nodes.indices { nodes[index].index = index }
+                            best = nodes
+                            bestScore = score
+                            bestPenalty = penalty
+                        }
                     }
-                    let proximity: Double = hypot(left - parentX, top - parentY) * 0.003
-                    let score: Double = layoutScore(nodes, bounds: safe, obstacles: obstacles) + 4 + proximity
-                    if score < bestScore { best = nodes; bestScore = score }
                 }
             }
         }
@@ -129,6 +163,31 @@ public enum RingGeometry {
 
     private static func point(_ x: Double, _ y: Double) -> CGPoint {
         CGPoint(x: CGFloat(x), y: CGFloat(y))
+    }
+
+    private static func isBetterLayout(penalty: Double, score: Double, bestPenalty: Double, bestScore: Double) -> Bool {
+        let valid = penalty <= 0.0001
+        let bestValid = bestPenalty <= 0.0001
+        if valid != bestValid { return valid }
+        return score < bestScore
+    }
+
+    private static func gridAxisCandidates(parent: Double, span: Double, spacing: Double, cells: Int,
+                                           lower: Double, upper: Double, radius: Double,
+                                           obstacles: [RingBubbleLayout], horizontal: Bool) -> [Double] {
+        let maximum = upper - span
+        var candidates: Set<Double> = [lower, maximum]
+        for cell in 0..<cells {
+            let shift = Double(cell) * spacing
+            candidates.insert(max(lower, min(maximum, parent - shift)))
+            for obstacle in obstacles {
+                let coordinate = Double(horizontal ? obstacle.center.x : obstacle.center.y)
+                let clearance = radius + obstacle.radius + 8
+                candidates.insert(max(lower, min(maximum, coordinate - clearance - shift)))
+                candidates.insert(max(lower, min(maximum, coordinate + clearance - shift)))
+            }
+        }
+        return candidates.sorted()
     }
 
     private static func layoutScore(_ nodes: [RingBubbleLayout], bounds: CGRect, obstacles: [RingBubbleLayout]) -> Double {

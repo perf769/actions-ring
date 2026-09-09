@@ -612,7 +612,7 @@ struct SettingsView: View {
             .padding(22).ringCard()
             VStack(alignment: .leading, spacing: 14) {
                 Text("Обратная связь").font(.headline)
-                Text("Откроется черновик обращения на GitHub с версиями программы и macOS. Журналы и настройки не прикрепляются.")
+                Text("Откроется черновик на GitHub с версиями программы и macOS, без журналов и настроек. Для отправки нужен аккаунт GitHub; сообщение будет публичным.")
                     .font(.callout).foregroundStyle(.secondary)
                 Button { controller.reportBug() } label: {
                     Label("Сообщить об ошибке", systemImage: "ladybug")
@@ -819,7 +819,8 @@ enum RingSettingsStyle {
 
 extension View {
     func ringCard() -> some View {
-        background(RingSettingsStyle.card, in: RoundedRectangle(cornerRadius: 17))
+        frame(maxWidth: .infinity, alignment: .leading)
+            .background(RingSettingsStyle.card, in: RoundedRectangle(cornerRadius: 17))
             .overlay(RoundedRectangle(cornerRadius: 17).stroke(Color.secondary.opacity(0.16)))
     }
 }

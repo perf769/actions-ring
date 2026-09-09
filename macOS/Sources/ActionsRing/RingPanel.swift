@@ -12,8 +12,9 @@ final class RingPanelController {
     private var generation = 0
     private var preferences = AppPreferences()
 
-    func show(profile: RingProfile, preferences: AppPreferences) {
-        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
+    func show(profile: RingProfile, preferences: AppPreferences, cursorOverride: NSPoint? = nil) {
+        let mouse = cursorOverride ?? NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) ?? NSScreen.main else { return }
         generation += 1
         fadeTimer?.invalidate()
         fadeTimer = nil
@@ -44,7 +45,6 @@ final class RingPanelController {
         panel.alphaValue = 1
         panel.setFrame(screen.frame, display: false)
         content.frame = CGRect(origin: .zero, size: screen.frame.size)
-        let mouse = NSEvent.mouseLocation
         let cursor = CGPoint(x: mouse.x - screen.frame.minX, y: screen.frame.maxY - mouse.y)
         let usable = CGRect(x: screen.visibleFrame.minX - screen.frame.minX,
                             y: screen.frame.maxY - screen.visibleFrame.maxY,

@@ -69,6 +69,8 @@ final class MacInputService {
     var onTrigger: (() -> Void)?
     var onRelease: (() -> Void)?
     var onError: ((String) -> Void)?
+    var shouldCancelOnEscape: (() -> Bool)?
+    var onCancel: (() -> Void)?
 
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
@@ -234,6 +236,19 @@ final class MacInputService {
                 return nil
             }
             return Unmanaged.passUnretained(event)
+        }
+
+        // Shortcut capture takes precedence, so Escape remains assignable. A fresh
+        // Escape cancels only an already visible ring; its repeat and matching up
+        // are filtered by the same balanced suppression path as a trigger key.
+        if type == .keyDown, code == 53,
+           event.getIntegerValueField(.keyboardEventAutorepeat) == 0,
+           shouldCancelOnEscape?() == true {
+            suppressedKeys.insert(code)
+            activation.reset()
+            scrollHeld = false
+            onCancel?()
+            return nil
         }
 
         guard let binding else { return Unmanaged.passUnretained(event) }

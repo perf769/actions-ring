@@ -45,7 +45,9 @@ struct ActionEditorView: View {
                 Button("Сохранить") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction).disabled(capturing)
             }
         }
-        .frame(width: 600, height: 650).tint(RingSettingsStyle.accent)
+        .frame(width: 600, height: 650)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(RingSettingsStyle.accent)
         .onChange(of: draft.kind) { oldValue, newValue in
             guard oldValue != newValue else { return }
             if capturing { cancelShortcutCapture(); capturing = false }
@@ -202,7 +204,9 @@ struct SlotEditorView: View {
                 .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             }
         }
-        .frame(width: 620, height: 700).tint(RingSettingsStyle.accent)
+        .frame(width: 620, height: 700)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(RingSettingsStyle.accent)
         .sheet(isPresented: $showingLibrary) {
             ActionLibraryView(bundleIdentifier: bundleIdentifier, captureShortcut: captureShortcut,
                               cancelShortcutCapture: cancelShortcutCapture) { action in
@@ -379,7 +383,9 @@ struct ActionLibraryView: View {
                 Button("Отмена", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
             }
         }
-        .frame(width: 650, height: 650).tint(RingSettingsStyle.accent)
+        .frame(width: 650, height: 650)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(RingSettingsStyle.accent)
         .sheet(item: $editing, onDismiss: {
             if selectedAction != nil { dismiss() }
         }) { action in
@@ -532,7 +538,9 @@ struct SymbolChooserView: View {
             }
             editorFooter { Button("Закрыть") { dismiss() }.keyboardShortcut(.cancelAction) }
         }
-        .frame(width: 620, height: 560).tint(RingSettingsStyle.accent)
+        .frame(width: 620, height: 560)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(RingSettingsStyle.accent)
     }
     private var filtered: [(String, String)] {
         symbols.filter { search.isEmpty || "\($0.0) \($0.1)".localizedCaseInsensitiveContains(search) }
@@ -584,7 +592,9 @@ struct ApplicationChooserView: View {
             }
             .padding(20).background(RingSettingsStyle.card).overlay(alignment: .top) { Divider() }
         }
-        .frame(width: 620, height: 610).tint(RingSettingsStyle.accent)
+        .frame(width: 620, height: 610)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .tint(RingSettingsStyle.accent)
         .task {
             applications = await MacApplicationDiscovery.discover()
             loaded = true

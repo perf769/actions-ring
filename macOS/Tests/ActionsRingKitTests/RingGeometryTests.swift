@@ -53,4 +53,23 @@ final class RingGeometryTests: XCTestCase {
             XCTAssertTrue(bounds.contains(tooltip))
         }
     }
+
+    func testCornerSubmenuStaysNearParentInsteadOfJumpingDownScreen() {
+        let bounds = CGRect(x: 0, y: 29, width: 1024, height: 739)
+        let root = RingGeometry.root(slotCount: 8, cursor: .zero, bounds: bounds, scale: 1)
+        let parent = root.bubbles[6]
+        let obstacles = root.bubbles + [RingBubbleLayout(index: -1, center: root.center, radius: root.closeRadius)]
+        let children = RingGeometry.submenu(count: 5, parent: parent.center, origin: root.center,
+                                            bounds: bounds, scale: root.scale, obstacles: obstacles)
+        XCTAssertEqual(children.count, 5)
+        let firstDistance = Double(hypot(children[0].center.x - parent.center.x, children[0].center.y - parent.center.y))
+        XCTAssertLessThan(firstDistance, 160, "The first submenu bubble must remain connected to its corner parent.")
+        for child in children {
+            XCTAssertTrue(bounds.contains(child.frame))
+            for obstacle in obstacles {
+                let distance = Double(hypot(child.center.x - obstacle.center.x, child.center.y - obstacle.center.y))
+                XCTAssertGreaterThanOrEqual(distance + 0.001, child.radius + obstacle.radius + 8)
+            }
+        }
+    }
 }
