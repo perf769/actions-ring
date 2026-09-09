@@ -47,6 +47,19 @@
                     <Slider x:Name="SlotCountSlider" Minimum="1" Maximum="9" TickFrequency="1" IsSnapToTickEnabled="True"
                             Margin="0,14,0,0" ValueChanged="OnSlotCountChanged" />
 
+                    <TextBlock Text="Порядок пузырей" FontWeight="SemiBold" Margin="0,20,0,0" />
+                    <TextBlock Text="Перетащите строку на другую, чтобы поменять их местами."
+                               Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,5,0,10" />
+                    <ListBox x:Name="ChildOrderList" Background="Transparent" BorderThickness="0" MaxHeight="240"
+                             HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             SelectionChanged="OnChildSelectionChanged" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                        <Button x:Name="MoveChildUpButton" Content="↑" ToolTip="На одну позицию выше" Width="42"
+                                Style="{StaticResource SecondaryButton}" Click="OnMoveChildUp" />
+                        <Button x:Name="MoveChildDownButton" Content="↓" ToolTip="На одну позицию ниже" Width="42" Margin="8,0,0,0"
+                                Style="{StaticResource SecondaryButton}" Click="OnMoveChildDown" />
+                    </StackPanel>
+
                     <Border Height="1" Background="{DynamicResource BorderBrush}" Margin="0,20,0,18" />
                     <TextBlock Text="Действие по клику" FontWeight="SemiBold" />
                     <TextBlock Text="Например, открыть приложение или выполнить сочетание клавиш."

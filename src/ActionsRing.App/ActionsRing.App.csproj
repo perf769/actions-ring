@@ -12,9 +12,9 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <ApplicationIcon>Assets\ActionsRing.ico</ApplicationIcon>
-    <Version>2.3.0</Version>
-    <AssemblyVersion>2.3.0.0</AssemblyVersion>
-    <FileVersion>2.3.0.0</FileVersion>
+    <Version>2.4.0</Version>
+    <AssemblyVersion>2.4.0.0</AssemblyVersion>
+    <FileVersion>2.4.0.0</FileVersion>
     <AssemblyTitle>Actions Ring</AssemblyTitle>
     <Product>Actions Ring</Product>
     <Company>Actions Ring</Company>

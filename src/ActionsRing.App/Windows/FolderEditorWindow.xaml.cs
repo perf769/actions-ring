@@ -1,6 +1,10 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Text.Json;
+using ActionsRing.App.Controls;
 using ActionsRing.App.Services;
 using ActionsRing.Core.Configuration;
 using ActionsRing.Core.Domain;
@@ -13,6 +17,9 @@ public partial class FolderEditorWindow : Window
     private readonly Func<CancellationToken, Task<KeyChord>> _captureShortcut;
     private readonly ActionCatalogContext? _catalogContext;
     private ActionDefinition? _clickAction;
+    private readonly RingDefinition _draftOrder;
+    private RingSlotDefinition? _dragChild;
+    private Point _childDragStart;
 
     public FolderEditorWindow(
         RingSlotDefinition target,
@@ -26,6 +33,7 @@ public partial class FolderEditorWindow : Window
         }
 
         _target = target;
+        _draftOrder = new RingDefinition { SlotCount = target.Submenu.SlotCount, Slots = [.. target.Submenu.Slots] };
         _catalogContext = catalogContext;
         _clickAction = target.Action?.Kind is null or ActionKind.None ? null : Clone(target.Action);
         _captureShortcut = captureShortcut ?? (_ => Task.FromCanceled<KeyChord>(new CancellationToken(canceled: true)));
@@ -36,7 +44,115 @@ public partial class FolderEditorWindow : Window
         SlotCountSlider.Value = target.Submenu.SlotCount;
         SlotCountText.Text = target.Submenu.SlotCount.ToString(System.Globalization.CultureInfo.CurrentCulture);
         RefreshClickAction();
+        RefreshChildOrder();
+        QueryContinueDrag += (_, args) =>
+        {
+            if (args.EscapePressed)
+            {
+                args.Action = DragAction.Cancel;
+                ClearChildDragFeedback();
+                args.Handled = true;
+            }
+        };
         ApplyResponsiveLayout();
+    }
+
+    private void RefreshChildOrder(RingSlotDefinition? selected = null)
+    {
+        ChildOrderList.Items.Clear();
+        for (var index = 0; index < _draftOrder.Slots.Count; index++)
+        {
+            var slot = _draftOrder.Slots[index];
+            var icon = new ActionIconView { Width = 24, Height = 24, Margin = new Thickness(10, 0, 12, 0) };
+            icon.SetResourceReference(ForegroundProperty, "TextPrimaryBrush");
+            icon.SetIcon(slot.Icon, slot.Action);
+            var row = new DockPanel();
+            var number = new TextBlock { Text = (index + 1).ToString(), Width = 18, VerticalAlignment = VerticalAlignment.Center };
+            number.SetResourceReference(TextBlock.ForegroundProperty, "TextSecondaryBrush");
+            DockPanel.SetDock(number, Dock.Left);
+            DockPanel.SetDock(icon, Dock.Left);
+            row.Children.Add(number);
+            row.Children.Add(icon);
+            row.Children.Add(new TextBlock { Text = slot.Label, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+            var dropFrame = new Border { BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(7), Child = row };
+            var item = new ListBoxItem
+            {
+                Tag = slot, Content = dropFrame, AllowDrop = true, Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 0, 0, 4), HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                IsSelected = ReferenceEquals(slot, selected),
+            };
+            item.PreviewMouseLeftButtonDown += (_, args) => { _dragChild = slot; _childDragStart = args.GetPosition(ChildOrderList); };
+            item.PreviewMouseLeftButtonUp += (_, _) => _dragChild = null;
+            item.PreviewMouseMove += (_, args) =>
+            {
+                if (args.LeftButton != MouseButtonState.Pressed) { _dragChild = null; return; }
+                if (!ReferenceEquals(_dragChild, slot) || !RingSlotDrag.ExceedsThreshold(_childDragStart, args.GetPosition(ChildOrderList))) return;
+                _dragChild = null;
+                try { DragDrop.DoDragDrop(item, new DataObject(RingSlotDrag.Format, new RingSlotDrag(_draftOrder, slot)), DragDropEffects.Move); }
+                finally { ClearChildDragFeedback(); }
+                args.Handled = true;
+            };
+            void PreviewDrop(DragEventArgs args)
+            {
+                args.Effects = CanDropChild(args.Data, slot) ? DragDropEffects.Move & args.AllowedEffects : DragDropEffects.None;
+                dropFrame.BorderBrush = args.Effects == DragDropEffects.Move ? (Brush)FindResource("AccentBrush") : Brushes.Transparent;
+                args.Handled = true;
+            }
+            item.DragEnter += (_, args) => PreviewDrop(args);
+            item.DragOver += (_, args) => PreviewDrop(args);
+            item.DragLeave += (_, args) => { ClearChildDragFeedback(); args.Handled = true; };
+            item.Drop += (_, args) =>
+            {
+                args.Effects = DragDropEffects.None;
+                if ((args.AllowedEffects & DragDropEffects.Move) != 0 && CanDropChild(args.Data, slot)
+                    && args.Data.GetData(RingSlotDrag.Format) is RingSlotDrag move && SwapChildSlots(move.Source, slot))
+                    args.Effects = DragDropEffects.Move;
+                ClearChildDragFeedback();
+                args.Handled = true;
+            };
+            ChildOrderList.Items.Add(item);
+        }
+        UpdateOrderButtons();
+    }
+
+    private bool CanDropChild(IDataObject data, RingSlotDefinition target) =>
+        data.GetData(RingSlotDrag.Format) is RingSlotDrag move && ReferenceEquals(move.Root, _draftOrder)
+            && RingSlotEditing.CanSwap(_draftOrder, move.Source, target);
+
+    internal bool SwapChildSlots(RingSlotDefinition source, RingSlotDefinition target)
+    {
+        if (!_draftOrder.Slots.Contains(source) || !_draftOrder.Slots.Contains(target)) return false;
+        if (!RingSlotEditing.TrySwap(_draftOrder, source, target)) return false;
+        RefreshChildOrder(source);
+        return true;
+    }
+
+    internal void CommitChildOrder() => _target.Submenu!.Slots = [.. _draftOrder.Slots];
+
+    private void ClearChildDragFeedback()
+    {
+        _dragChild = null;
+        foreach (var item in ChildOrderList.Items.OfType<ListBoxItem>())
+        {
+            if (item.Content is Border dropFrame) dropFrame.BorderBrush = Brushes.Transparent;
+        }
+    }
+
+    private void OnChildSelectionChanged(object sender, SelectionChangedEventArgs args) => UpdateOrderButtons();
+    private void UpdateOrderButtons()
+    {
+        if (MoveChildUpButton is null || MoveChildDownButton is null) return;
+        MoveChildUpButton.IsEnabled = ChildOrderList.SelectedIndex > 0;
+        MoveChildDownButton.IsEnabled = ChildOrderList.SelectedIndex >= 0 && ChildOrderList.SelectedIndex < _draftOrder.Slots.Count - 1;
+    }
+    private void OnMoveChildUp(object sender, RoutedEventArgs args) => MoveChild(-1);
+    private void OnMoveChildDown(object sender, RoutedEventArgs args) => MoveChild(1);
+    private void MoveChild(int offset)
+    {
+        var index = ChildOrderList.SelectedIndex;
+        var targetIndex = index + offset;
+        if (index >= 0 && targetIndex >= 0 && targetIndex < _draftOrder.Slots.Count)
+            SwapChildSlots(_draftOrder.Slots[index], _draftOrder.Slots[targetIndex]);
     }
 
     private void FitToMonitorWorkArea()
@@ -163,7 +279,7 @@ public partial class FolderEditorWindow : Window
             (int)Math.Round(SlotCountSlider.Value),
             RingDefinition.MinimumSubmenuSlots,
             RingDefinition.MaximumSubmenuSlots);
-        if (requestedCount < submenu.Slots.Count && submenu.Slots.Skip(requestedCount).Any(IsConfigured))
+        if (requestedCount < _draftOrder.Slots.Count && _draftOrder.Slots.Skip(requestedCount).Any(IsConfigured))
         {
             var answer = MessageBox.Show(
                 this,
@@ -177,6 +293,7 @@ public partial class FolderEditorWindow : Window
             }
         }
 
+        CommitChildOrder();
         while (submenu.Slots.Count < requestedCount)
         {
             submenu.Slots.Add(RingSlotDefinition.Empty(submenu.Slots.Count));

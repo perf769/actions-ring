@@ -187,7 +187,7 @@
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <StackPanel x:Name="EditorHeadingPanel" Grid.ColumnSpan="2" Margin="0,0,0,12">
                                         <TextBlock x:Name="EditorHeading" Text="Настройте своё кольцо" Style="{StaticResource TitleText}" FontSize="28" TextWrapping="NoWrap" />
-                                        <TextBlock x:Name="EditorHelpText" Text="Перетащите действие на пузырь или выберите пузырь и нажмите действие справа." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,5,0,0" />
+                                        <TextBlock x:Name="EditorHelpText" Text="Перетащите действие из библиотеки. Перетащите пузырь на другой, чтобы поменять их местами." Style="{StaticResource CaptionText}" FontSize="13" Margin="0,5,0,0" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <StackPanel x:Name="EditorToolbarActions" Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                         <ComboBox x:Name="RingStyleCombo" Width="138" SelectionChanged="OnRingStyleChanged">
@@ -467,7 +467,7 @@
                                         <TextBlock Text="Быстрое контекстное кольцо действий для Windows" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,5,0,0" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
-                                        <TextBlock x:Name="VersionText" Text="Версия 2.3.0" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        <TextBlock x:Name="VersionText" Text="Версия 2.4.0" FontWeight="SemiBold" HorizontalAlignment="Right" />
                                         <Border x:Name="VersionStatusBadge" Background="{DynamicResource SurfaceRaisedBrush}" CornerRadius="9" Padding="10,5" Margin="0,8,0,0" HorizontalAlignment="Right">
                                             <TextBlock x:Name="VersionStatusText" Text="Готово к проверке" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondaryBrush}" />
                                         </Border>

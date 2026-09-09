@@ -60,6 +60,11 @@ public partial class RingMenuControl : UserControl
     private NodeVisual? _adjustmentFeedbackNode;
     private bool _animateOnNextLayout;
     private RingStyleDefinition? _style;
+    private RingSlotDefinition? _dragCandidate;
+    private Point _dragStart;
+    private bool _slotDragInProgress;
+    private bool _suppressDragClick;
+    private RingSlotDefinition? _dropTarget;
 
     private static readonly DependencyProperty SubmenuProgressProperty = DependencyProperty.Register(
         "SubmenuProgress", typeof(double), typeof(RingMenuControl),
@@ -111,6 +116,18 @@ public partial class RingMenuControl : UserControl
 
         SizeChanged += (_, _) => RepositionWithoutAnimation();
         PreviewMouseWheel += OnPreviewMouseWheel;
+        PreviewMouseLeftButtonDown += (_, _) => { _suppressDragClick = false; _dragCandidate = null; };
+        PreviewMouseMove += OnSlotDragMouseMove;
+        QueryContinueDrag += (_, args) =>
+        {
+            if (args.EscapePressed)
+            {
+                args.Action = DragAction.Cancel;
+                ClearSlotDragFeedback();
+                args.Handled = true;
+            }
+        };
+        Unloaded += (_, _) => ClearSlotDragFeedback();
     }
 
     public event EventHandler<RingSlotEventArgs>? SlotInvoked;
@@ -283,6 +300,7 @@ public partial class RingMenuControl : UserControl
     public void Present(RingDefinition ring, bool animate = true)
     {
         ArgumentNullException.ThrowIfNull(ring);
+        ClearSlotDragFeedback();
         animate &= AnimationsEnabled;
         _ring = ring;
         UpdatePaletteResources();
@@ -301,6 +319,7 @@ public partial class RingMenuControl : UserControl
 
     public void Clear()
     {
+        ClearSlotDragFeedback();
         _ring = null;
         OpenFolder = null;
         SelectedSlot = null;
@@ -828,47 +847,129 @@ public partial class RingMenuControl : UserControl
         bubble.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
-            OnNodeClicked(visual);
+            CompleteSlotClick(visual);
         };
-        bubble.MouseLeftButtonDown += (_, args) => args.Handled = true;
+        bubble.MouseLeftButtonDown += (_, args) =>
+        {
+            BeginSlotDragCandidate(slot, args.GetPosition(this));
+            args.Handled = true;
+        };
         if (tail is not null)
         {
-            tail.MouseLeftButtonDown += (_, args) => args.Handled = true;
+            tail.MouseLeftButtonDown += (_, args) =>
+            {
+                BeginSlotDragCandidate(slot, args.GetPosition(this));
+                args.Handled = true;
+            };
             tail.MouseLeftButtonUp += (_, args) =>
             {
                 args.Handled = true;
-                OnNodeClicked(visual);
+                CompleteSlotClick(visual);
             };
         }
-        bubble.DragEnter += (_, args) =>
+        void PreviewDrop(DragEventArgs args)
         {
-            if (InteractionMode != RingInteractionMode.Configure)
-            {
-                return;
-            }
-            args.Effects = DragDropEffects.Copy;
+            args.Effects = PreviewSlotDrop(args.Data, slot, args.AllowedEffects);
             args.Handled = true;
-            SetNodeHover(visual, true, animate: true);
-        };
+        }
+        bubble.DragEnter += (_, args) => PreviewDrop(args);
+        bubble.DragOver += (_, args) => PreviewDrop(args);
         bubble.DragLeave += (_, args) =>
         {
-            SetNodeHover(visual, IsNodeActive(visual), animate: true);
+            _dropTarget = null;
+            RefreshNodeStates(animate: false);
             args.Handled = true;
         };
         bubble.Drop += (_, args) =>
         {
-            if (InteractionMode != RingInteractionMode.Configure)
-            {
-                return;
-            }
-            var payload = args.Data.GetData("ActionsRing.ActionCatalogItem");
-            if (payload is not null)
-            {
-                SlotDropRequested?.Invoke(this, new RingSlotDropEventArgs(slot, payload));
-            }
+            var effect = GetSlotDropEffect(args.Data, slot) & args.AllowedEffects;
+            args.Effects = effect != DragDropEffects.None && RequestSlotDrop(args.Data, slot) ? effect : DragDropEffects.None;
+            ClearSlotDragFeedback();
             args.Handled = true;
         };
         return visual;
+    }
+
+    internal void BeginSlotDragCandidate(RingSlotDefinition slot, Point point)
+    {
+        _dragCandidate = InteractionMode == RingInteractionMode.Configure ? slot : null;
+        _dragStart = point;
+    }
+
+    private void CompleteSlotClick(NodeVisual node)
+    {
+        _dragCandidate = null;
+        if (!_slotDragInProgress && !_suppressDragClick) OnNodeClicked(node);
+        _suppressDragClick = false;
+    }
+
+    private void OnSlotDragMouseMove(object sender, MouseEventArgs args)
+    {
+        if (args.LeftButton != MouseButtonState.Pressed)
+        {
+            _dragCandidate = null;
+            return;
+        }
+        if (_slotDragInProgress || _dragCandidate is not { } source
+            || !RingSlotDrag.ExceedsThreshold(_dragStart, args.GetPosition(this))) return;
+        var data = CreateSlotDragData(source);
+        if (data is null) return;
+        _dragCandidate = null;
+        _slotDragInProgress = true;
+        _suppressDragClick = true;
+        try
+        {
+            DragDrop.DoDragDrop(this, data, DragDropEffects.Move);
+        }
+        finally
+        {
+            _slotDragInProgress = false;
+            ClearSlotDragFeedback();
+        }
+        args.Handled = true;
+    }
+
+    internal DataObject? CreateSlotDragData(RingSlotDefinition source) =>
+        InteractionMode == RingInteractionMode.Configure && _ring is not null
+            && FindSlotPath(_ring, source, [], out _)
+                ? new DataObject(RingSlotDrag.Format, new RingSlotDrag(_ring, source)) : null;
+
+    internal DragDropEffects GetSlotDropEffect(IDataObject data, RingSlotDefinition target)
+    {
+        if (InteractionMode != RingInteractionMode.Configure || _ring is null
+            || !FindSlotPath(_ring, target, [], out _)) return DragDropEffects.None;
+        if (data.GetDataPresent(RingSlotDrag.Format))
+        {
+            return data.GetData(RingSlotDrag.Format) is RingSlotDrag move
+                && ReferenceEquals(move.Root, _ring) && RingSlotEditing.CanSwap(_ring, move.Source, target)
+                    ? DragDropEffects.Move : DragDropEffects.None;
+        }
+        return data.GetData(ActionCatalog.DragFormat) is ActionCatalogItem ? DragDropEffects.Copy : DragDropEffects.None;
+    }
+
+    internal DragDropEffects PreviewSlotDrop(IDataObject data, RingSlotDefinition target, DragDropEffects allowedEffects)
+    {
+        var effect = GetSlotDropEffect(data, target) & allowedEffects;
+        _dropTarget = effect == DragDropEffects.None ? null : target;
+        RefreshNodeStates(animate: false);
+        return effect;
+    }
+
+    internal bool RequestSlotDrop(IDataObject data, RingSlotDefinition target)
+    {
+        var effect = GetSlotDropEffect(data, target);
+        if (effect == DragDropEffects.None) return false;
+        var payload = data.GetData(effect == DragDropEffects.Move ? RingSlotDrag.Format : ActionCatalog.DragFormat);
+        SlotDropRequested?.Invoke(this, new RingSlotDropEventArgs(target, payload!));
+        return true;
+    }
+
+    internal void ClearSlotDragFeedback()
+    {
+        _dragCandidate = null;
+        _dropTarget = null;
+        if (InteractionMode == RingInteractionMode.Configure) HoveredSlot = null;
+        RefreshNodeStates(animate: false);
     }
 
     private void OnNodeEntered(NodeVisual node)
@@ -1282,7 +1383,8 @@ public partial class RingMenuControl : UserControl
             {
                 SetNodeHover(node, active, animate);
             }
-            var selectedOutline = ReferenceEquals(SelectedSlot, node.Slot) && !_openFolders.Contains(node.Slot);
+            var selectedOutline = ReferenceEquals(_dropTarget, node.Slot)
+                || ReferenceEquals(SelectedSlot, node.Slot) && !_openFolders.Contains(node.Slot);
             node.Bubble.BorderBrush = selectedOutline
                 ? ResourceBrush("AccentBrush", new SolidColorBrush(Color.FromRgb(129, 76, 255)))
                 : Brushes.Transparent;

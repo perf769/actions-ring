@@ -185,7 +185,7 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RefreshAll();
-        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.3.0"}";
+        VersionText.Text = $"Версия {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.4.0"}";
         if (!_controller.Configuration.Onboarding.IsCompleted)
         {
             ShowOnboarding(1);
@@ -861,10 +861,42 @@ public partial class MainWindow : Window
 
     private async void OnEditorSlotDropRequested(object? sender, RingSlotDropEventArgs e)
     {
-        if (e.Payload is ActionCatalogItem item)
+        if (e.Payload is RingSlotDrag move)
+        {
+            await SwapEditorSlotsAsync(move, e.Target);
+        }
+        else if (e.Payload is ActionCatalogItem item)
         {
             await AssignCatalogItemAsync(e.Target, item);
         }
+    }
+
+    internal async Task<bool> SwapEditorSlotsAsync(RingSlotDrag move, RingSlotDefinition target)
+    {
+        var (_, ring, _) = GetSelectedProfile();
+        if (!ReferenceEquals(move.Root, ring) || !RingSlotEditing.CanSwap(ring, move.Source, target)) return false;
+        var profileId = _selectedProfileId;
+        var sourceId = move.Source.Id;
+        var selectionBefore = _selectedSlot?.Id;
+        if (!await MutateAndSaveAsync(_ =>
+            {
+                if (!RingSlotEditing.TrySwap(ring, move.Source, target))
+                    throw new InvalidOperationException("The ring positions changed before the move could be saved.");
+            }, updateAutostart: false))
+        {
+            if (_selectedProfileId == profileId)
+            {
+                _selectedSlot = selectionBefore is null ? null : FindSlotById(_controller.Configuration, profileId, selectionBefore);
+                RefreshEditor();
+            }
+            return false;
+        }
+        if (_selectedProfileId == profileId)
+        {
+            _selectedSlot = FindSlotById(_controller.Configuration, profileId, sourceId);
+            RefreshEditor();
+        }
+        return true;
     }
 
     private async void OnActionItemClick(object sender, RoutedEventArgs e)
